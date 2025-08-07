@@ -10,8 +10,7 @@ seaborn==0.13.2
 spacy==3.8.3
 textacy==0.13.0
 tqdm==4.67.1
-umap==0.1.1
-pyLDAvis
-pydot
-umap-learn
-gensim>=3.8.3
+pyLDAvis==3.4.1
+pydot==1.4.2
+umap-learn==0.5.5
+gensim==4.3.2
