@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/.env python
 # -*- coding: utf-8 -*-
 """
 Scrape de comentarios PUROS (issue comments) de múltiples URLs de GitHub (Issue/PR) vía GraphQL.
@@ -48,7 +48,7 @@ ISO_FMT = "%Y-%m-%dT%H:%M:%SZ"
 # -------------------------
 
 def load_token(filepath: str = "../token.txt") -> Optional[str]:
-    """Intenta leer el token de ../token.txt; si no existe, usa env GITHUB_TOKEN."""
+    """Intenta leer el token de ../token.txt; si no existe, usa .env GITHUB_TOKEN."""
     if os.path.exists(filepath):
         try:
             with open(filepath, "r", encoding="utf-8") as f:

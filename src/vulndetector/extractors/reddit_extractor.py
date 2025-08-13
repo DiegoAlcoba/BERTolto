@@ -12,9 +12,9 @@ CLIENT_ID = os.getenv("REDDIT_CLIENT_ID")
 CLIENT_SECRET = os.getenv("REDDIT_CLIENT_SECRET")
 USER_AGENT = os.getenv("REDDIT_USER_AGENT")
 
-SUBREDDITS_SELECCIONADOS = ['learnpython', 'datascience', 'programming']  # Puedes cambiar o añadir más
+SUBREDDITS_SELECCIONADOS = ['netsec', 'AskNetsec', 'cybersecurity', 'ReverseEngineering', 'exploitdev', 'websecurity', 'websecurityresearch', 'Malware', 'netsecstudents']
 LIMITE_PUBLICACIONES = 50  # Puedes aumentar este límite si lo deseas
-ARCHIVO_SALIDA = 'comentarios_reddit.csv'
+ARCHIVO_SALIDA = '../../../data/comentarios_reddit_raw.csv'
 
 
 # --- Script Principal ---
@@ -22,7 +22,7 @@ ARCHIVO_SALIDA = 'comentarios_reddit.csv'
 def inicializar_reddit():
     """Inicializa y devuelve una instancia autenticada de PRAW."""
     if not all([CLIENT_ID, CLIENT_SECRET, USER_AGENT]):
-        print("Error: Asegúrate de que las variables de entorno de Reddit están en tu archivo .env")
+        print("Error: Asegúrate de que las variables de entorno de Reddit están en tu archivo ..env")
         return None
     return praw.Reddit(client_id=CLIENT_ID, client_secret=CLIENT_SECRET, user_agent=USER_AGENT)
 
@@ -58,7 +58,7 @@ def extraer_comentarios_a_csv(reddit, subreddits):
                                 ])
 
                         # Pausa cortés para no saturar la API innecesariamente
-                        time.sleep(1)
+                        # time.sleep(1)
 
                 except Exception as e:
                     print(f"!! Error al procesar r/{subreddit_name}: {e}. Continuando con el siguiente...")
