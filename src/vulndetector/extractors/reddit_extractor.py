@@ -2,6 +2,10 @@ import praw
 import os
 import csv
 import time
+
+from pathlib import Path
+from datetime import datetime, timedelta, timezone
+from typing import List, Optional
 from dotenv import load_dotenv
 
 # Cargar variables de entorno desde el archivo .env

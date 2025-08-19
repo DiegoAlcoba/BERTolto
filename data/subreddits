@@ -1,28 +1,9 @@
-    r/netsec – Agregador técnico centrado en seguridad; alto signal/noise.
-    subredditstats.com
-
-    r/AskNetsec – Q&A de profesionales; muchas preguntas sobre vectores, configuraciones inseguras, CVEs en la práctica.
-    SentinelOne
-    gummysearch.com
-
-    r/cybersecurity – Noticias técnicas, amenazas y discusiones de incidentes (a menudo con detalles prácticos).
-    Reddit+1
-
-    r/ReverseEngineering – Técnicas de reversing que suelen destapar vulnerabilidades (parsers, binarios, protocolos).
-    subredditstats.com
-
-    r/Malware – Análisis y reports de muestras; útil para patrones de explotación y evasión.
-    gummysearch.com
-
-    r/exploitdev – Desarrollo de exploits (buffer overflows, ROP, fuzzing); excelente para señales tempranas.
-    SentinelOne
-
-    r/netsecstudents – Preguntas frecuentes sobre CVEs y tooling; menos “vulns nuevas”, pero mucha señal contextual.
-    subredditstats.com
-    Reddit
-
-Otros temáticos que pueden dar casos concretos: r/websecurity, r/websecurityresearch, r/ComputerSecurity (más generalista).
-
-Listado de referencia:
-https://hakluke.com/list-of-cybersecurity-subreddits?utm_source=chatgpt.com
-https://www.cyberpress.io/learn/lists/reddit-cybersecurity/?utm_source=chatgpt.com
+netsec
+AskNetsec
+cybersecurity
+ReverseEngineering
+exploitdev
+websecurity
+websecurityresearch
+Malware
+netsecstudents
