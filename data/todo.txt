@@ -1,0 +1,4 @@
+Elige 3–5 subreddits del bloque prioritario (p. ej., r/netsec, r/AskNetsec, r/cybersecurity, r/ReverseEngineering, r/exploitdev) y crea un “seed” de posts con palabras clave (CVE, 0day, vulnerability, bypass, RCE, XSS, SSRF…).
+
+Para GitHub, genera una lista de URLs de issues/discussions con los filtros de arriba en estos repos (Kubernetes, Envoy, Helm, Grafana, Prometheus, Node.js, Next.js, Electron, OpenSSL, cURL, TensorFlow, PyTorch). Esa lista la pasas directamente a tu scraper.
+**El seed son los archivos con los subreddits/repos en lista para cogerlos con los scrappers directamente**
