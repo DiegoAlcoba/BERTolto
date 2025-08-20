@@ -1,0 +1,11 @@
+kubernetes/kubernetes
+kubernetes/ingress-nginx
+envoyproxy/envoy
+grafana/grafana
+prometheus/prometheus
+vercel/next.js
+nodejs/node
+tensorflow/tensorflow
+pytorch/pytorch
+openssl/openssl
+electron-userland/electron-builder

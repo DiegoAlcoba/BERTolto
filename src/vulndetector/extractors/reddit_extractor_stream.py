@@ -281,7 +281,7 @@ def main():
 
     subs = read_subs_file(args.subs_file)
     if not subs:
-        print("No hay subreddits definidos. Usa --subs-file o variable REDDIT_SUBS.")
+        print("No hay subreddits.txt definidos. Usa --subs-file o variable REDDIT_SUBS.")
         raise SystemExit(1)
 
     # preparar salidas y reddit

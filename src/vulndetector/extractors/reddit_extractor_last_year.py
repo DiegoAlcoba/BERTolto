@@ -213,7 +213,7 @@ def extract_last_n_days_to_csv(
 def main():
     import argparse
 
-    ap = argparse.ArgumentParser(description="Extrae comentarios PUROS de subreddits (últimos N días) con checkpoint por subreddit.")
+    ap = argparse.ArgumentParser(description="Extrae comentarios PUROS de subreddits.txt (últimos N días) con checkpoint por subreddit.")
     ap.add_argument("--subs-file", type=str, required=False, help="Ruta a .txt con un subreddit por línea (sin 'r/').")
     ap.add_argument("--out-csv", type=str, default=str(DEFAULT_OUT_CSV), help="Ruta de salida CSV (se crea si no existe).")
     ap.add_argument("--days", type=int, default=DEFAULT_DAYS, help="Días hacia atrás (ventana). Por defecto 365.")
@@ -239,7 +239,7 @@ def main():
             ]
 
     if not subs:
-        print("No hay subreddits para procesar. Usa --subs-file o REDDIT_SUBS.")
+        print("No hay subreddits.txt para procesar. Usa --subs-file o REDDIT_SUBS.")
         raise SystemExit(1)
 
     reddit = init_reddit(args.user_agent)

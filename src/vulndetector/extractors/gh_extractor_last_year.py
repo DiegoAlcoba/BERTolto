@@ -2,14 +2,14 @@
 # -*- coding: utf-8 -*-
 
 """
-Backfill de comentarios de GitHub (últimos N días) para múltiples repos.
+Extractor de comentarios de GitHub (últimos N días) para múltiples repos.
 - Extrae issue comments (y opcionalmente review comments) vía GraphQL.
 - Filtra por fecha del comentario (createdAt >= now - N días).
-- Escribe CSV y JSONL de forma incremental.
+- Escribe CSV de forma incremental.
 
 Uso:
   export GITHUB_TOKEN=ghp_xxx
-  python gh_backfill_last_year.py --repos-file repos.txt --out-base ../../../data/gh_comments_lastyear --days 365 --include-review-comments
+  python gh_extractor_last_year.py --repos-file ../../../data/repos.txt --days 365 --include-review-comments
 """
 
 import os
@@ -20,6 +20,10 @@ import argparse
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Any, Iterable, List, Optional, Tuple
+from dotenv import load_dotenv, find_dotenv
+
+# Carga el .env buscando desde el working directory hacia arriba
+load_dotenv(find_dotenv(usecwd=True), override=True)
 
 import requests
 import csv
@@ -42,6 +46,7 @@ DEFAULT_REPOS = [
     "electron-userland/electron-builder",
 ]
 
+# Función que carga el token de GitHub
 def require_token() -> str:
     tok = os.getenv("GITHUB_TOKEN")
     if not tok:
@@ -49,16 +54,18 @@ def require_token() -> str:
         sys.exit(1)
     return tok
 
+# Función que crea la sesión en la API de GitHub con la librería requests
 def mk_session(token: str) -> requests.Session:
     s = requests.Session()
     s.headers.update({
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
         "Content-Type": "application/json",
-        "User-Agent": "gh-comments-backfill/1.0"
+        "User-Agent": "gh-comments-extractor-last-year"
     })
     return s
 
+# Función que lanza la petición contra la API de GitHub
 def gql(session: requests.Session, query: str, variables: Dict[str, Any], backoff: float = 1.0) -> Dict[str, Any]:
     while True:
         r = session.post(GRAPHQL_ENDPOINT, json={"query": query, "variables": variables})
@@ -80,7 +87,8 @@ def iso(ts: float) -> str:
 def parse_iso(s: str) -> float:
     return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
 
-# ── GraphQL queries ───────────────────────────────────────────────────────────
+# Modelos de querys GraphQL
+# Lista de Issues de un repositorio
 ISSUES_LIST_Q = """
 query Issues($owner:String!, $name:String!, $pageSize:Int!, $cursor:String) {
   repository(owner:$owner, name:$name) {
@@ -96,6 +104,7 @@ query Issues($owner:String!, $name:String!, $pageSize:Int!, $cursor:String) {
 }
 """
 
+# Lista de PRs en un repositorio
 PRS_LIST_Q = """
 query PRs($owner:String!, $name:String!, $pageSize:Int!, $cursor:String) {
   repository(owner:$owner, name:$name) {
@@ -112,6 +121,7 @@ query PRs($owner:String!, $name:String!, $pageSize:Int!, $cursor:String) {
 }
 """
 
+# Pide los comentarios de un Issue (number) para recuperar comentarios puros
 ISSUE_COMMENTS_Q = """
 query IssueComments($owner:String!, $name:String!, $number:Int!, $pageSize:Int!, $cursor:String) {
   repository(owner:$owner, name:$name) {
@@ -130,6 +140,7 @@ query IssueComments($owner:String!, $name:String!, $number:Int!, $pageSize:Int!,
 }
 """
 
+# Pide comentarios de conversación de un PR (number)
 PR_COMMENTS_Q = """
 query PRComments($owner:String!, $name:String!, $number:Int!, $pageSize:Int!, $cursor:String) {
   repository(owner:$owner, name:$name) {
@@ -145,6 +156,7 @@ query PRComments($owner:String!, $name:String!, $number:Int!, $pageSize:Int!, $c
 }
 """
 
+# Pide los hilos de code review de un PR (number) y todos sus comentarios
 PR_REVIEW_THREADS_Q = """
 query PRReviewThreads($owner:String!, $name:String!, $number:Int!, $pageSize:Int!, $cursor:String) {
   repository(owner:$owner, name:$name) {
@@ -163,7 +175,9 @@ query PRReviewThreads($owner:String!, $name:String!, $number:Int!, $pageSize:Int
 }
 """
 
-# ── Iteradores ────────────────────────────────────────────────────────────────
+# ITERADORES -> Cómo se consumen las queries
+
+# Función que pagina la lista de Issues
 def list_issues(session, owner, repo) -> Iterable[Dict[str, Any]]:
     cursor = None
     while True:
@@ -174,6 +188,7 @@ def list_issues(session, owner, repo) -> Iterable[Dict[str, Any]]:
         if not conn["pageInfo"]["hasNextPage"]: break
         cursor = conn["pageInfo"]["endCursor"]
 
+# Función que pagina la lista de PRs
 def list_prs(session, owner, repo) -> Iterable[Dict[str, Any]]:
     cursor = None
     while True:
@@ -184,6 +199,7 @@ def list_prs(session, owner, repo) -> Iterable[Dict[str, Any]]:
         if not conn["pageInfo"]["hasNextPage"]: break
         cursor = conn["pageInfo"]["endCursor"]
 
+# Función que pagina los comentarios de un Issue
 def iter_issue_comments(session, owner, repo, number) -> Iterable[Dict[str, Any]]:
     cursor = None
     while True:
@@ -195,6 +211,7 @@ def iter_issue_comments(session, owner, repo, number) -> Iterable[Dict[str, Any]
         if not issue["comments"]["pageInfo"]["hasNextPage"]: break
         cursor = issue["comments"]["pageInfo"]["endCursor"]
 
+# Función que pagina los comentarios de un PR
 def iter_pr_issue_comments(session, owner, repo, number) -> Iterable[Dict[str, Any]]:
     cursor = None
     while True:
@@ -206,6 +223,7 @@ def iter_pr_issue_comments(session, owner, repo, number) -> Iterable[Dict[str, A
         if not pr["comments"]["pageInfo"]["hasNextPage"]: break
         cursor = pr["comments"]["pageInfo"]["endCursor"]
 
+# Pagina los hilos de code review y comentarios de un PR
 def iter_pr_review_comments(session, owner, repo, number) -> Iterable[Dict[str, Any]]:
     cursor = None
     while True:
@@ -220,10 +238,10 @@ def iter_pr_review_comments(session, owner, repo, number) -> Iterable[Dict[str, 
         if not conn["pageInfo"]["hasNextPage"]: break
         cursor = conn["pageInfo"]["endCursor"]
 
-# ── Escritura incremental ────────────────────────────────────────────────────
+# Clase para la escritura incremental de los comentarios (continúa donde lo dejó y no repite comentarios aunque se hagan varias ejecuciones)
 class Writer:
     def __init__(self, base: Path):
-        self.csv_path = base.with_suffix(".csv"); self.jsonl_path = base.with_suffix(".jsonl")
+        self.csv_path = base.with_suffix(".csv")
         self.csv_path.parent.mkdir(parents=True, exist_ok=True)
         self._csv_new = not self.csv_path.exists()
         self._csv = open(self.csv_path, "a", newline="", encoding="utf-8")
@@ -233,7 +251,6 @@ class Writer:
                 "repo","is_pr","issue_number","comment_type","comment_id","comment_created_at","comment_author",
                 "text","comment_url","context_id","container_title","container_state","container_url","container_created_at","container_updated_at","container_labels"
             ])
-        self._jsonl = open(self.jsonl_path, "a", encoding="utf-8")
 
     def write_row(self, row: Dict[str, Any]):
         # CSV
@@ -241,16 +258,14 @@ class Writer:
             row["repo"], row["is_pr"], row["issue_number"], row["comment_type"], row["id"], row["created_at"], row["author"],
             row["text"], row["url"], row["context_id"], row["container_title"], row["container_state"], row["container_url"], row["container_created_at"], row["container_updated_at"], ";".join(row.get("container_labels",[]))
         ])
-        # JSONL
-        self._jsonl.write(json.dumps(row, ensure_ascii=False) + "\n")
 
     def flush(self):
-        self._csv.flush(); self._jsonl.flush()
+        self._csv.flush()
 
     def close(self):
-        self._csv.close(); self._jsonl.close()
+        self._csv.close()
 
-# ── Transformación y backfill ────────────────────────────────────────────────
+# Transformación y backfill
 def row_issue(repo_full:str, number:int, issue:Dict[str,Any], node:Dict[str,Any]) -> Dict[str,Any]:
     return {
         "id": f"github_issuecomment_{node['id']}",
@@ -309,6 +324,7 @@ def row_pr_review(repo_full:str, number:int, node:Dict[str,Any], thread_id:str) 
         "thread_id": thread_id,
     }
 
+# Función para la extracción de comentarios desde el último extraído
 def backfill_repo(session, owner, repo, writer: Writer, cutoff_ts: float, include_reviews: bool):
     repo_full = f"{owner}/{repo}"
     cutoff_iso = iso(cutoff_ts)
@@ -335,6 +351,7 @@ def backfill_repo(session, owner, repo, writer: Writer, cutoff_ts: float, includ
                 if parse_iso(rc["createdAt"]) >= cutoff_ts:
                     writer.write_row(row_pr_review(repo_full, num, rc, thread_id))
 
+# Función para leer los repositorios desde un archivo de texto
 def read_repos_file(p: Optional[str]) -> List[str]:
     if not p: return DEFAULT_REPOS
     out = []
@@ -348,7 +365,7 @@ def read_repos_file(p: Optional[str]) -> List[str]:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--repos-file", type=str, help="Archivo con repos owner/name por línea.")
-    ap.add_argument("--out-base", type=str, default="../../../data/gh_comments_lastyear", help="Ruta base sin extensión.")
+    ap.add_argument("--out-base", type=str, default="../../../data/gh_comments/train-fine_tuning/gh_comments_lastyear", help="Ruta base sin extensión.")
     ap.add_argument("--days", type=int, default=365, help="Días hacia atrás (ventana).")
     ap.add_argument("--include-review-comments", action="store_true", help="Incluir comentarios de code review en PRs.")
     args = ap.parse_args()
@@ -374,7 +391,7 @@ def main():
             print(f"  ! Error en {repo_full}: {e}")
             continue
     writer.close()
-    print("\nBackfill completado.")
+    print("\nExtracción completada.")
 
 if __name__ == "__main__":
     main()

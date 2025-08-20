@@ -1,4 +1,22 @@
-Elige 3–5 subreddits del bloque prioritario (p. ej., r/netsec, r/AskNetsec, r/cybersecurity, r/ReverseEngineering, r/exploitdev) y crea un “seed” de posts con palabras clave (CVE, 0day, vulnerability, bypass, RCE, XSS, SSRF…).
+Elige 3–5 subreddits del bloque prioritario (p. ej., r/netsec, r/AskNetsec, r/cybersecurity,
+ r/ReverseEngineering, r/exploitdev) y crea un “seed” de posts con palabras clave
+ (CVE, 0day, vulnerability, bypass, RCE, XSS, SSRF…).
 
-Para GitHub, genera una lista de URLs de issues/discussions con los filtros de arriba en estos repos (Kubernetes, Envoy, Helm, Grafana, Prometheus, Node.js, Next.js, Electron, OpenSSL, cURL, TensorFlow, PyTorch). Esa lista la pasas directamente a tu scraper.
+Para GitHub, genera una lista de URLs de issues/discussions con los filtros de arriba en estos repos
+(Kubernetes, Envoy, Helm, Grafana, Prometheus, Node.js, Next.js, Electron, OpenSSL, cURL, TensorFlow,
+PyTorch). Esa lista la pasas directamente a tu scraper.
+
 **El seed son los archivos con los subreddits/repos en lista para cogerlos con los scrappers directamente**
+
+
+
+¿Es “suficiente” solo el body para fine-tuning?
+
+Para un baseline sí: el body del issue/PR suele contener la hipótesis del bug/vuln.
+Pero para mejor recall conviene mezclar:
+
+Body inicial (señal de alta precisión).
+
+Un puñado de comentarios (p. ej., el primer o primeros N), donde a menudo aparecen confirmaciones, PoCs o matices (“esto es RCE si X está activado”).
+
+Mi recomendación: empieza con --only-initial-post para el set semilla y, en una segunda pasada, añade --max-comments-per-item 1–2 para enriquecer sin desbordarte.
