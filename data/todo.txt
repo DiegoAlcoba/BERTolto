@@ -9,6 +9,8 @@ PyTorch). Esa lista la pasas directamente a tu scraper.
 **El seed son los archivos con los subreddits/repos en lista para cogerlos con los scrappers directamente**
 
 
+En la extracción en tiempo real (stream) aplicar los cambios para que extraiga solo el body de la Issue
+o un máximo definido de comentarios
 
 ¿Es “suficiente” solo el body para fine-tuning?
 

@@ -10,6 +10,13 @@ Extractor de comentarios de GitHub (últimos N días) para múltiples repos.
 Uso:
   export GITHUB_TOKEN=ghp_xxx
   python gh_extractor_last_year.py --repos-file ../../../data/repos.txt --days 365 --include-review-comments
+
+  # Solo el cuerpo de issues/PRs del último año
+        python gh_extractor_last_year.py --repos-file ../../../data/repos.txt --days 365 --only-initial-post
+
+    # O bien: máximo 1 comentario por issue/PR (además del body si luego lo activas)
+        python gh_extractor_last_year.py --repos-file ../../../data/repos.txt --days 365 --max-comments-per-item N
+
 """
 
 import os
@@ -88,6 +95,35 @@ def parse_iso(s: str) -> float:
     return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
 
 # Modelos de querys GraphQL
+# Query para obtener el body (comentario ppal) de un Issue
+ISSUE_BODY_Q = """
+query IssueBody($owner:String!, $name:String!, $number:Int!) {
+  repository(owner:$owner, name:$name) {
+    issue(number:$number) {
+      number title url state createdAt updatedAt
+      author { login }
+      labels(first:50){nodes{name}}
+      bodyText
+    }
+  }
+}
+"""
+
+# Query para obtener el body (comentario ppal) de un PR
+PR_BODY_Q = """
+query PRBody($owner:String!, $name:String!, $number:Int!) {
+  repository(owner:$owner, name:$name) {
+    pullRequest(number:$number) {
+      number title url state createdAt updatedAt mergedAt
+      author { login }
+      labels(first:50){nodes{name}}
+      bodyText
+    }
+  }
+}
+"""
+
+
 # Lista de Issues de un repositorio
 ISSUES_LIST_Q = """
 query Issues($owner:String!, $name:String!, $pageSize:Int!, $cursor:String) {
@@ -266,6 +302,49 @@ class Writer:
         self._csv.close()
 
 # Transformación y backfill
+def row_issue_body(repo_full:str, issue:Dict[str,Any]) -> Dict[str,Any]:
+    return {
+        "id": f"github_issuebody_{repo_full}#{issue['number']}",
+        "platform":"github",
+        "text": issue.get("bodyText") or "",
+        "created_at": issue["createdAt"],
+        "url": issue["url"],
+        "repo": repo_full,
+        "issue_number": issue["number"],
+        "is_pr": False,
+        "comment_type":"issue_body",
+        "author": (issue.get("author") or {}).get("login"),
+        "context_id": f"{repo_full}#issue:{issue['number']}",
+        "container_title": issue.get("title"),
+        "container_state": issue.get("state"),
+        "container_url": issue.get("url"),
+        "container_created_at": issue.get("createdAt"),
+        "container_updated_at": issue.get("updatedAt"),
+        "container_labels":[lb["name"] for lb in (issue.get("labels",{}) or {}).get("nodes",[])],
+    }
+
+def row_pr_body(repo_full:str, pr:Dict[str,Any]) -> Dict[str,Any]:
+    return {
+        "id": f"github_prbody_{repo_full}#{pr['number']}",
+        "platform":"github",
+        "text": pr.get("bodyText") or "",
+        "created_at": pr["createdAt"],
+        "url": pr["url"],
+        "repo": repo_full,
+        "issue_number": pr["number"],
+        "is_pr": True,
+        "comment_type":"pr_body",
+        "author": (pr.get("author") or {}).get("login"),
+        "context_id": f"{repo_full}#pr:{pr['number']}",
+        "container_title": pr.get("title"),
+        "container_state": pr.get("state"),
+        "container_url": pr.get("url"),
+        "container_created_at": pr.get("createdAt"),
+        "container_updated_at": pr.get("updatedAt"),
+        "container_labels":[lb["name"] for lb in (pr.get("labels",{}) or {}).get("nodes",[])],
+    }
+
+
 def row_issue(repo_full:str, number:int, issue:Dict[str,Any], node:Dict[str,Any]) -> Dict[str,Any]:
     return {
         "id": f"github_issuecomment_{node['id']}",
@@ -324,31 +403,68 @@ def row_pr_review(repo_full:str, number:int, node:Dict[str,Any], thread_id:str) 
         "thread_id": thread_id,
     }
 
+# Funciones para pedir los bodys de Issues y PRs
+def fetch_issue_body(session, owner, repo, number):
+    data = gql(session, ISSUE_BODY_Q, {"owner":owner,"name":repo,"number":number})
+    return data["repository"]["issue"]
+
+def fetch_pr_body(session, owner, repo, number):
+    data = gql(session, PR_BODY_Q, {"owner":owner,"name":repo,"number":number})
+    return data["repository"]["pullRequest"]
+
 # Función para la extracción de comentarios desde el último extraído
-def backfill_repo(session, owner, repo, writer: Writer, cutoff_ts: float, include_reviews: bool):
+def extractor_repo(session, owner, repo, writer: Writer, cutoff_ts: float, include_reviews: bool, only_initial_post: bool, max_comments_per_item: Optional[int]):
     repo_full = f"{owner}/{repo}"
-    cutoff_iso = iso(cutoff_ts)
 
     # Issues
     for it in list_issues(session, owner, repo):
         if parse_iso(it["updatedAt"]) < cutoff_ts:
             break  # ya estamos fuera de la ventana
         num = it["number"]
+
+        # Solo body
+        if only_initial_post:
+            if parse_iso(it["createdAt"]) >= cutoff_ts:
+                issue = fetch_issue_body(session, owner, repo, num)
+                writer.write_row(row_issue_body(repo_full, issue))
+            continue
+
+        # Si se quieren comentarios -> Limitar por item
+        count = 0
         for issue, com in iter_issue_comments(session, owner, repo, num):
             if parse_iso(com["createdAt"]) >= cutoff_ts:
+                if max_comments_per_item is not None and count >= max_comments_per_item:
+                    break
                 writer.write_row(row_issue(repo_full, num, issue, com))
+                count += 1
 
     # PRs
     for prn in list_prs(session, owner, repo):
         if parse_iso(prn["updatedAt"]) < cutoff_ts:
             break
         num = prn["number"]
+
+        # Solo body de la PR
+        if only_initial_post:
+            if parse_iso(prn["createdAt"]) >= cutoff_ts:
+                pr = fetch_pr_body(session, owner, repo, num)
+                writer.write_row(row_pr_body(repo_full, pr))
+            continue
+
+        count = 0
+
         for pr, com in iter_pr_issue_comments(session, owner, repo, num):
             if parse_iso(com["createdAt"]) >= cutoff_ts:
+                if max_comments_per_item is not None and count >= max_comments_per_item:
+                    break
                 writer.write_row(row_pr_issue(repo_full, num, pr, com))
-        if include_reviews:
+                count += 1
+
+        if include_reviews and (max_comments_per_item is None or count < max_comments_per_item):
             for thread_id, rc in iter_pr_review_comments(session, owner, repo, num):
                 if parse_iso(rc["createdAt"]) >= cutoff_ts:
+                    if max_comments_per_item is not None and count >= max_comments_per_item:
+                        break
                     writer.write_row(row_pr_review(repo_full, num, rc, thread_id))
 
 # Función para leer los repositorios desde un archivo de texto
@@ -367,6 +483,8 @@ def main():
     ap.add_argument("--repos-file", type=str, help="Archivo con repos owner/name por línea.")
     ap.add_argument("--out-base", type=str, default="../../../data/gh_comments/train-fine_tuning/gh_comments_lastyear", help="Ruta base sin extensión.")
     ap.add_argument("--days", type=int, default=365, help="Días hacia atrás (ventana).")
+    ap.add_argument("--only-initial-post", action="store_true", help="Guardar solo el body inicial de Issues/PRs (sin comentarios siguientes")
+    ap.add_argument("--max-comments-per-item", type=int, default=None, help="Máximo de comentarios por Issue/PR (0 = ninguno")
     ap.add_argument("--include-review-comments", action="store_true", help="Incluir comentarios de code review en PRs.")
     args = ap.parse_args()
 
@@ -385,7 +503,11 @@ def main():
             print(f"Repo inválido: {repo_full}"); continue
         print(f"\n==> {repo_full} (últimos {args.days} días)")
         try:
-            backfill_repo(session, owner, repo, writer, cutoff_ts, include_reviews=args.include_review_comments)
+            extractor_repo(session, owner, repo, writer, cutoff_ts,
+                           include_reviews=args.include_review_comments,
+                           only_initial_post=args.only_initial_post,
+                           max_comments_per_item=args.max_comments_per_item)
+
             writer.flush()
         except Exception as e:
             print(f"  ! Error en {repo_full}: {e}")
