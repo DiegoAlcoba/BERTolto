@@ -21,13 +21,17 @@ Uso:
 
 import os
 import sys
-import json
 import time
 import argparse
+import random
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Any, Iterable, List, Optional, Tuple
 from dotenv import load_dotenv, find_dotenv
+from http.client import RemoteDisconnected
+from requests.adapters import HTTPAdapter
+from requests.exceptions import RequestException
+from urllib3.util import Retry
 
 # Carga el .env buscando desde el working directory hacia arriba
 load_dotenv(find_dotenv(usecwd=True), override=True)
@@ -70,23 +74,56 @@ def mk_session(token: str) -> requests.Session:
         "Content-Type": "application/json",
         "User-Agent": "gh-comments-extractor-last-year"
     })
+
+    retry = Retry (
+        total=8, connect=8, read=8, status=8,
+        backoff_factor=1.5,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=frozenset(['POST']),
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry, pool_maxsize=64, pool_block=True)
+    s.mount("https://", adapter); s.mount("http://", adapter)
+
     return s
 
 # Función que lanza la petición contra la API de GitHub
 def gql(session: requests.Session, query: str, variables: Dict[str, Any], backoff: float = 1.0) -> Dict[str, Any]:
     while True:
-        r = session.post(GRAPHQL_ENDPOINT, json={"query": query, "variables": variables})
-        if r.status_code == 200:
-            data = r.json()
-            if "errors" in data:
-                msgs = " | ".join(e.get("message","") for e in data["errors"])
-                if "rate limit" in msgs.lower() or "Something went wrong" in msgs:
-                    time.sleep(backoff); backoff = min(backoff*1.7, 30.0); continue
-                raise RuntimeError(f"GraphQL error: {msgs}")
-            return data["data"]
-        if r.status_code in (429, 502, 503, 504):
-            time.sleep(backoff); backoff = min(backoff*1.7, 30.0); continue
-        raise RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")
+        try:
+            r = session.post(
+                GRAPHQL_ENDPOINT,
+                json={"query": query, "variables": variables},
+                timeout=(5, 40)  # 5s connect, 40s read
+            )
+            if r.status_code == 403 and "rate limit" in r.text.lower():
+                reset = r.headers.get("X-RateLimit-Reset")
+                sleep_for = max(5, int(reset) - int(time.time()) + 3) if (reset and reset.isdigit()) else 30
+                print(f"[gql] 403 rate limit. Duermo {sleep_for}s…")
+                time.sleep(sleep_for); continue
+
+            if r.status_code == 200:
+                data = r.json()
+                if "errors" in data:
+                    msgs = " | ".join(e.get("message","") for e in data["errors"])
+                    if ("Something went wrong" in msgs) or ("abuse" in msgs.lower()) or ("rate limit" in msgs.lower()):
+                        sleep_for = min(backoff * 1.7 + random.uniform(0, 0.5), 30.0)
+                        print(f"[gql] Error transitorio: {msgs}. Reintento en {sleep_for:.1f}s…")
+                        time.sleep(sleep_for); backoff = sleep_for; continue
+                    raise RuntimeError(f"GraphQL error: {msgs}")
+                return data["data"]
+
+            if r.status_code in (429, 500, 502, 503, 504):
+                sleep_for = min(backoff * 1.7 + random.uniform(0, 0.5), 30.0)
+                print(f"[gql] HTTP {r.status_code}. Reintento en {sleep_for:.1f}s…")
+                time.sleep(sleep_for); backoff = sleep_for; continue
+
+            raise RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")
+
+        except (RequestException, RemoteDisconnected) as e:
+            sleep_for = min(backoff * 1.7 + random.uniform(0, 0.5), 30.0)
+            print(f"[gql] Conexión abortada ({e}). Reintento en {sleep_for:.1f}s…")
+            time.sleep(sleep_for); backoff = sleep_for; continue
 
 def iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -96,6 +133,7 @@ def parse_iso(s: str) -> float:
 
 # Modelos de querys GraphQL
 # Query para obtener el body (comentario ppal) de un Issue
+
 ISSUE_BODY_Q = """
 query IssueBody($owner:String!, $name:String!, $number:Int!) {
   repository(owner:$owner, name:$name) {
@@ -132,8 +170,9 @@ query Issues($owner:String!, $name:String!, $pageSize:Int!, $cursor:String) {
       pageInfo { hasNextPage endCursor }
       nodes {
         number title url state createdAt updatedAt
-        labels(first:50){nodes{name}}
-        comments(first:1){ totalCount } # para saber si tiene
+        author { login }
+        labels(first:50){ nodes { name } }
+        bodyText
       }
     }
   }
@@ -148,9 +187,9 @@ query PRs($owner:String!, $name:String!, $pageSize:Int!, $cursor:String) {
       pageInfo { hasNextPage endCursor }
       nodes {
         number title url state createdAt updatedAt mergedAt
-        labels(first:50){nodes{name}}
-        comments(first:1){ totalCount }
-        reviewThreads(first:1){ totalCount }
+        author { login }
+        labels(first:50){ nodes { name } }
+        bodyText
       }
     }
   }
@@ -223,6 +262,7 @@ def list_issues(session, owner, repo) -> Iterable[Dict[str, Any]]:
             yield n
         if not conn["pageInfo"]["hasNextPage"]: break
         cursor = conn["pageInfo"]["endCursor"]
+        time.sleep(0.2) #Para evitar timeouts
 
 # Función que pagina la lista de PRs
 def list_prs(session, owner, repo) -> Iterable[Dict[str, Any]]:
@@ -234,6 +274,7 @@ def list_prs(session, owner, repo) -> Iterable[Dict[str, Any]]:
             yield n
         if not conn["pageInfo"]["hasNextPage"]: break
         cursor = conn["pageInfo"]["endCursor"]
+        time.sleep(0.2) #Para evitar timeouts
 
 # Función que pagina los comentarios de un Issue
 def iter_issue_comments(session, owner, repo, number) -> Iterable[Dict[str, Any]]:
@@ -276,7 +317,7 @@ def iter_pr_review_comments(session, owner, repo, number) -> Iterable[Dict[str, 
 
 # Clase para la escritura incremental de los comentarios (continúa donde lo dejó y no repite comentarios aunque se hagan varias ejecuciones)
 class Writer:
-    def __init__(self, base: Path):
+    def __init__(self, base: Path, dedupe: bool = True):
         self.csv_path = base.with_suffix(".csv")
         self.csv_path.parent.mkdir(parents=True, exist_ok=True)
         self._csv_new = not self.csv_path.exists()
@@ -288,12 +329,34 @@ class Writer:
                 "text","comment_url","context_id","container_title","container_state","container_url","container_created_at","container_updated_at","container_labels"
             ])
 
+        # deduplica
+        self.seen_ids = set()
+        if dedupe and self.csv_path.exists():
+            try:
+                with open(self.csv_path, newline="", encoding="utf-8") as f:
+                    r = csv.reader(f)
+                    header = next(r, None)
+                    idx = header.index("comment_id") if header and "comment_id" in header else 4
+                    for row in r:
+                        if row:
+                            self.seen_ids.add(row[idx])
+            except Exception as e:
+                print(f"[dedupe] No se pudo precargar IDs: {e}")
+
     def write_row(self, row: Dict[str, Any]):
         # CSV
         self._w.writerow([
             row["repo"], row["is_pr"], row["issue_number"], row["comment_type"], row["id"], row["created_at"], row["author"],
             row["text"], row["url"], row["context_id"], row["container_title"], row["container_state"], row["container_url"], row["container_created_at"], row["container_updated_at"], ";".join(row.get("container_labels",[]))
         ])
+
+    def write_unique(self, row: Dict[str, Any]) -> bool:
+        rid = row["id"]
+        if rid in self.seen_ids:
+            return False
+        self.write_row(row)
+        self.seen_ids.add(rid)
+        return True
 
     def flush(self):
         self._csv.flush()
@@ -344,6 +407,50 @@ def row_pr_body(repo_full:str, pr:Dict[str,Any]) -> Dict[str,Any]:
         "container_labels":[lb["name"] for lb in (pr.get("labels",{}) or {}).get("nodes",[])],
     }
 
+# *** Funciones para evitar desconexión por demasiadas consultas (no hacer 1 consulta por body) ***
+def row_issue_body_from_node(repo_full: str, node: dict) -> dict:
+    return {
+        "id": f"github_issuebody_{repo_full}#{node['number']}",
+        "platform": "github",
+        "text": node.get("bodyText") or "",
+        "created_at": node["createdAt"],
+        "url": node["url"],
+        "repo": repo_full,
+        "issue_number": node["number"],
+        "is_pr": False,
+        "comment_type": "issue_body",
+        "author": (node.get("author") or {}).get("login"),
+        "context_id": f"{repo_full}#issue:{node['number']}",
+        "container_title": node.get("title"),
+        "container_state": node.get("state"),
+        "container_url": node.get("url"),
+        "container_created_at": node.get("createdAt"),
+        "container_updated_at": node.get("updatedAt"),
+        "container_labels": [lb["name"] for lb in (node.get("labels", {}) or {}).get("nodes", [])],
+    }
+
+def row_pr_body_from_node(repo_full: str, node: dict) -> dict:
+    return {
+        "id": f"github_prbody_{repo_full}#{node['number']}",
+        "platform": "github",
+        "text": node.get("bodyText") or "",
+        "created_at": node["createdAt"],
+        "url": node["url"],
+        "repo": repo_full,
+        "issue_number": node["number"],
+        "is_pr": True,
+        "comment_type": "pr_body",
+        "author": (node.get("author") or {}).get("login"),
+        "context_id": f"{repo_full}#pr:{node['number']}",
+        "container_title": node.get("title"),
+        "container_state": node.get("state"),
+        "container_url": node.get("url"),
+        "container_created_at": node.get("createdAt"),
+        "container_updated_at": node.get("updatedAt"),
+        "container_labels": [lb["name"] for lb in (node.get("labels", {}) or {}).get("nodes", [])],
+    }
+
+# -------------------------------------------------------------------------------------------------
 
 def row_issue(repo_full:str, number:int, issue:Dict[str,Any], node:Dict[str,Any]) -> Dict[str,Any]:
     return {
@@ -416,56 +523,71 @@ def fetch_pr_body(session, owner, repo, number):
 def extractor_repo(session, owner, repo, writer: Writer, cutoff_ts: float, include_reviews: bool, only_initial_post: bool, max_comments_per_item: Optional[int]):
     repo_full = f"{owner}/{repo}"
 
+    # Normaliza: 0 -> no escribir ningún comentario de ese issue/PR
+    if max_comments_per_item is not None and max_comments_per_item < 0:
+        max_comments_per_item = 0
+
     # Issues
     for it in list_issues(session, owner, repo):
         if parse_iso(it["updatedAt"]) < cutoff_ts:
             break  # ya estamos fuera de la ventana
-        num = it["number"]
 
         # Solo body
         if only_initial_post:
             if parse_iso(it["createdAt"]) >= cutoff_ts:
-                issue = fetch_issue_body(session, owner, repo, num)
-                writer.write_row(row_issue_body(repo_full, issue))
+                writer.write_unique(row_issue_body_from_node(repo_full, it))
             continue
 
         # Si se quieren comentarios -> Limitar por item
+        if max_comments_per_item == 0:
+            continue
+
         count = 0
+        num = it["number"]
         for issue, com in iter_issue_comments(session, owner, repo, num):
-            if parse_iso(com["createdAt"]) >= cutoff_ts:
+            cts = parse_iso(com["createdAt"])
+            if cts >= cutoff_ts:
                 if max_comments_per_item is not None and count >= max_comments_per_item:
                     break
-                writer.write_row(row_issue(repo_full, num, issue, com))
+                writer.write_unique(row_issue(repo_full, num, issue, com))
                 count += 1
 
     # PRs
     for prn in list_prs(session, owner, repo):
         if parse_iso(prn["updatedAt"]) < cutoff_ts:
             break
-        num = prn["number"]
 
         # Solo body de la PR
         if only_initial_post:
             if parse_iso(prn["createdAt"]) >= cutoff_ts:
-                pr = fetch_pr_body(session, owner, repo, num)
-                writer.write_row(row_pr_body(repo_full, pr))
+                writer.write_unique(row_pr_body_from_node(repo_full, prn))
+            continue
+
+        # Comentarios (issue comments del PR + review comments si se pide)
+        if max_comments_per_item == 0:
             continue
 
         count = 0
+        num = prn["number"]
 
+        # PR issue comments (pestaña Conversation)
         for pr, com in iter_pr_issue_comments(session, owner, repo, num):
-            if parse_iso(com["createdAt"]) >= cutoff_ts:
+            cts =parse_iso(com["createdAt"])
+            if cts >= cutoff_ts:
                 if max_comments_per_item is not None and count >= max_comments_per_item:
                     break
-                writer.write_row(row_pr_issue(repo_full, num, pr, com))
+                writer.write_unique(row_pr_issue(repo_full, num, pr, com))
                 count += 1
 
+        # Review comments
         if include_reviews and (max_comments_per_item is None or count < max_comments_per_item):
             for thread_id, rc in iter_pr_review_comments(session, owner, repo, num):
-                if parse_iso(rc["createdAt"]) >= cutoff_ts:
+                cts = parse_iso(rc["createdAt"])
+                if cts >= cutoff_ts:
                     if max_comments_per_item is not None and count >= max_comments_per_item:
                         break
-                    writer.write_row(row_pr_review(repo_full, num, rc, thread_id))
+                    writer.write_unique(row_pr_review(repo_full, num, rc, thread_id))
+                    count += 1
 
 # Función para leer los repositorios desde un archivo de texto
 def read_repos_file(p: Optional[str]) -> List[str]:
@@ -483,8 +605,8 @@ def main():
     ap.add_argument("--repos-file", type=str, help="Archivo con repos owner/name por línea.")
     ap.add_argument("--out-base", type=str, default="../../../data/gh_comments/train-fine_tuning/gh_comments_lastyear", help="Ruta base sin extensión.")
     ap.add_argument("--days", type=int, default=365, help="Días hacia atrás (ventana).")
-    ap.add_argument("--only-initial-post", action="store_true", help="Guardar solo el body inicial de Issues/PRs (sin comentarios siguientes")
-    ap.add_argument("--max-comments-per-item", type=int, default=None, help="Máximo de comentarios por Issue/PR (0 = ninguno")
+    ap.add_argument("--only-initial-post", action="store_true", help="Guardar solo el body inicial de Issues/PRs (sin comentarios siguientes)")
+    ap.add_argument("--max-comments-per-item", type=int, default=None, help="Máximo de comentarios por Issue/PR (0 = ninguno)")
     ap.add_argument("--include-review-comments", action="store_true", help="Incluir comentarios de code review en PRs.")
     args = ap.parse_args()
 
