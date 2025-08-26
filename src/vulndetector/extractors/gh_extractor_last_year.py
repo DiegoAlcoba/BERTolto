@@ -31,6 +31,7 @@ from dotenv import load_dotenv, find_dotenv
 from http.client import RemoteDisconnected
 from requests.adapters import HTTPAdapter
 from requests.exceptions import RequestException
+from transformers.utils import can_return_tuple
 from urllib3.util import Retry
 
 # Carga el .env buscando desde el working directory hacia arriba
@@ -520,25 +521,35 @@ def fetch_pr_body(session, owner, repo, number):
     return data["repository"]["pullRequest"]
 
 # Función para la extracción de comentarios desde el último extraído
-def extractor_repo(session, owner, repo, writer: Writer, cutoff_ts: float, include_reviews: bool, only_initial_post: bool, max_comments_per_item: Optional[int]):
+def extractor_repo(session, owner, repo, writer: Writer, cutoff_ts: float, include_reviews: bool, only_initial_post: bool, max_comments_per_item: Optional[int], max_comments_per_repo: Optional[int]):
     repo_full = f"{owner}/{repo}"
 
     # Normaliza: 0 -> no escribir ningún comentario de ese issue/PR
     if max_comments_per_item is not None and max_comments_per_item < 0:
         max_comments_per_item = 0
 
+    # Presupuesto de cada repo (comentarios a extraer de cada repositorio)
+    repo_budget = max_comments_per_repo
+
+    # Saber si se pueden seguir extrayendo comentarios
+    def can_write_more() -> bool:
+        return (repo_budget is None) or (repo_budget > 0)
+
     # Issues
     for it in list_issues(session, owner, repo):
         if parse_iso(it["updatedAt"]) < cutoff_ts:
             break  # ya estamos fuera de la ventana
 
-        # Solo body
+        # Solo body: no aplica presupuesto de comentarios
         if only_initial_post:
             if parse_iso(it["createdAt"]) >= cutoff_ts:
                 writer.write_unique(row_issue_body_from_node(repo_full, it))
             continue
 
         # Si se quieren comentarios -> Limitar por item
+        if not can_write_more(): # Si se ha llegado al límite de presupuesto de comentarios
+            break
+
         if max_comments_per_item == 0:
             continue
 
@@ -547,10 +558,26 @@ def extractor_repo(session, owner, repo, writer: Writer, cutoff_ts: float, inclu
         for issue, com in iter_issue_comments(session, owner, repo, num):
             cts = parse_iso(com["createdAt"])
             if cts >= cutoff_ts:
-                if max_comments_per_item is not None and count >= max_comments_per_item:
+                if not can_write_more():
                     break
-                writer.write_unique(row_issue(repo_full, num, issue, com))
-                count += 1
+                if (max_comments_per_item is not None) and (count >= max_comments_per_item):
+                    break
+
+                row = row_issue(repo_full, num, issue, com)
+                wrote = writer.write_unique(row)
+                if wrote:
+                    count += 1
+                    if repo_budget is not None:
+                        repo_budget -= 1
+                if not can_write_more():
+                        break
+
+        if not can_write_more():
+            break
+
+        # No queda presupuesto y no se están descargando bodies, no seguimos con PRs
+        if not only_initial_post and not can_write_more():
+            return
 
     # PRs
     for prn in list_prs(session, owner, repo):
@@ -563,6 +590,9 @@ def extractor_repo(session, owner, repo, writer: Writer, cutoff_ts: float, inclu
                 writer.write_unique(row_pr_body_from_node(repo_full, prn))
             continue
 
+        if not can_write_more():
+            break
+
         # Comentarios (issue comments del PR + review comments si se pide)
         if max_comments_per_item == 0:
             continue
@@ -574,20 +604,44 @@ def extractor_repo(session, owner, repo, writer: Writer, cutoff_ts: float, inclu
         for pr, com in iter_pr_issue_comments(session, owner, repo, num):
             cts =parse_iso(com["createdAt"])
             if cts >= cutoff_ts:
-                if max_comments_per_item is not None and count >= max_comments_per_item:
+                if not can_write_more():
                     break
-                writer.write_unique(row_pr_issue(repo_full, num, pr, com))
-                count += 1
+                if (max_comments_per_item is not None) and (count >= max_comments_per_item):
+                    break
+
+                row = row_pr_issue(repo_full, num, pr, com)
+                wrote = writer.write_unique(row)
+
+                if wrote:
+                    cont += 1
+                    if repo_budget is not None:
+                        repo_budget -= 1
+
+                if not can_write_more():
+                    break
+        if not can_write_more():
+            break
 
         # Review comments
         if include_reviews and (max_comments_per_item is None or count < max_comments_per_item):
             for thread_id, rc in iter_pr_review_comments(session, owner, repo, num):
                 cts = parse_iso(rc["createdAt"])
                 if cts >= cutoff_ts:
-                    if max_comments_per_item is not None and count >= max_comments_per_item:
+                    if not can_write_more():
                         break
-                    writer.write_unique(row_pr_review(repo_full, num, rc, thread_id))
-                    count += 1
+                    if (max_comments_per_item is not None) and (count >= max_comments_per_item):
+                        break
+
+                    row = row_pr_review(repo_full, num, rc, thread_id)
+                    wrote = writer.write_unique(row)
+                    if wrote:
+                        count += 1
+                        if repo_budget is not None:
+                            repo_budget -= 1
+                    if not can_write_more():
+                        break
+            if not can_write_more():
+                break
 
 # Función para leer los repositorios desde un archivo de texto
 def read_repos_file(p: Optional[str]) -> List[str]:
@@ -608,6 +662,7 @@ def main():
     ap.add_argument("--only-initial-post", action="store_true", help="Guardar solo el body inicial de Issues/PRs (sin comentarios siguientes)")
     ap.add_argument("--max-comments-per-item", type=int, default=None, help="Máximo de comentarios por Issue/PR (0 = ninguno)")
     ap.add_argument("--include-review-comments", action="store_true", help="Incluir comentarios de code review en PRs.")
+    ap.add_argument("--max-comments-per-repo", type=int, default=None, help="Límite total de comentarios a extraer por repositorio (suma de Issue + PR [+review si se incluyen].")
     args = ap.parse_args()
 
     repos = read_repos_file(args.repos_file)
@@ -628,7 +683,8 @@ def main():
             extractor_repo(session, owner, repo, writer, cutoff_ts,
                            include_reviews=args.include_review_comments,
                            only_initial_post=args.only_initial_post,
-                           max_comments_per_item=args.max_comments_per_item)
+                           max_comments_per_item=args.max_comments_per_item,
+                           max_comments_per_repo=args.max_comments_per_repo)
 
             writer.flush()
         except Exception as e:
