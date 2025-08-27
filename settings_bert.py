@@ -9,7 +9,7 @@ import sqlite3
 import os
 import subprocess
 import sys
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, logging
 
 import numpy as np
 import math
