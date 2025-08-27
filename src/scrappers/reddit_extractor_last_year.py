@@ -118,6 +118,7 @@ def extract_last_n_days_to_csv(
         writer = csv.writer(f)
         if write_header:
             writer.writerow([
+        # CSV con al menos: comment_id, body, author, subreddit, created_utc, permalink, link_id, parent_id
                 "subreddit",
                 "submission_id",
                 "submission_created_utc",

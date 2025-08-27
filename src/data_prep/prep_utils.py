@@ -1,6 +1,7 @@
 import re
 from pathlib import Path
 from typing import List, Optional, Dict, Tuple, Union
+import sqlite3
 
 import pandas as pd
 
@@ -18,11 +19,12 @@ EXPECTED_GH_COLS = ['repo','is_pr','issue_number','comment_type','comment_id','c
     'container_created_at','container_updated_at','container_labels']
 
 # Normalización ligera de los comentarios
-def light_norm(s:str) -> str:
-    s = s.replace("\t", " ").replace("\r", "\n"")
+def light_norm(s: str) -> str:
+    s = s.replace("\t", " ").replace("\r", "\n")
     s = re.sub(r"[\u200B\u200C\u200D\uFEFF]", "", s)    # zero-width
     s = re.sub(r"[ \t\f\v]+", " ", s)   # colapsa espacios
     s = re.sub(r"\n{3,}", "\n\n", s)    # máx. 2 saltos de línea seguidos
+
     return s.strip()
 
 # Lectura del DataFrame
@@ -39,6 +41,8 @@ def read_any(path: Union[str, Path]) -> pd.DataFrame:
             return pd.read_csv(p, header=None, names=EXPECTED_GH_COLS)
 
         return pd.read_csv(p, header=None)
+    # Si es JSON (por si acaso)
+    return pd.read_json(p, lines=True)
 
 def ensure_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Intenta mapear columnas de GitHub o Reddit en las 6 principales"""
@@ -80,13 +84,13 @@ def ensure_columns(df: pd.DataFrame) -> pd.DataFrame:
     # CREATED_AT
     if COL_CREATED_AT not in d.columns:
         cand = None
-        for c in ["comment_created_at","container_created_at","created_at","createdUtc","created_utc"];
+        for c in ["comment_created_at","container_created_at","created_at","createdUtc","created_utc"]:
             if c in d.columns:
                 cand = c; break
         if cand is not None:
             d[COL_CREATED_AT] = d[cand]
         else:
-            d[COL_CREATED_AT] = pd.TimeStamp.utcnow().isoFormat()
+            d[COL_CREATED_AT] = pd.Timestamp.utcnow().isoformat()
 
     # CONTEXT
     if COL_CONTEXT not in d.columns:
@@ -106,20 +110,43 @@ def ensure_columns(df: pd.DataFrame) -> pd.DataFrame:
     return d
 
 def normalize_basic(df: pd.DataFrame) -> pd.DataFrame:
+    d = df.copy()
+    d[COL_TEXT] = d[COL_TEXT].astype(str).map(light_norm)
 
+    # Por si reddit trae COL_CREATED_AT como segundos
+    if pd.api.types.is_numeric_dtype(d[COL_CREATED_AT]) or ([COL_CREATED_AT].astype(str).str.fullmatch(r"\d+").all()):
+        d[COL_CREATED_AT] = pd.to_datetime(d[COL_CREATED_AT], unit="s", utc=True, errors="coerce")
+    else:
+        d[COL_CREATED_AT] = pd.to_datetime(d[COL_CREATED_AT], utc=True, errors="coerce")
 
+    d[COL_CREATED_AT] = d[COL_CREATED_AT].fillna(pd.Timestamp.utcnow())
 
+    return d
 
+def load_sqlite(db_path: Union[str, Path], query: Optional[str] = None, table: Optional[str] = None, limit: Optional[int] = None) -> pd.DataFrame:
+    conn = sqlite3.connect(str(db_path))
 
+    try:
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
 
+        if query:
+            sql = query
+        else:
+            if table is None:
+                raise ValueError("--table o --query requerido para SQLite")
+            core = f"SELECT {COL_ID},{COL_TEXT},{COL_LABEL},{COL_SOURCE},{COL_CREATED_AT},{COL_CONTEXT} FROM {table}"
+            sql = core
+        if limit is not None:
+            sql = f"SELECT * FROM ({sql}) LIMIT {limit}"
+        df = pd.read_sql(sql, conn)
+    finally:
+        conn.close()
 
+    return df
 
-
-
-
-
-
-
-
-
-
+# Se guarda como parquet -> Mejor formato para BERT y más ligero que .csv
+def save_parquet(df: pd.DataFrame, path: Union[str, Path]):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(path, index=False)
