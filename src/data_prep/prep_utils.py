@@ -40,7 +40,7 @@ def read_any(path: Union[str, Path]) -> pd.DataFrame:
         if len(probe.columns) > 0 and "/" in str(probe.columns[0]):
             return pd.read_csv(p, header=None, names=EXPECTED_GH_COLS)
 
-        return pd.read_csv(p, header=None)
+        return pd.read_csv(p)
     # Si es JSON (por si acaso)
     return pd.read_json(p, lines=True)
 
@@ -114,7 +114,7 @@ def normalize_basic(df: pd.DataFrame) -> pd.DataFrame:
     d[COL_TEXT] = d[COL_TEXT].astype(str).map(light_norm)
 
     # Por si reddit trae COL_CREATED_AT como segundos
-    if pd.api.types.is_numeric_dtype(d[COL_CREATED_AT]) or ([COL_CREATED_AT].astype(str).str.fullmatch(r"\d+").all()):
+    if pd.api.types.is_numeric_dtype(d[COL_CREATED_AT]) or d[COL_CREATED_AT].astype(str).str.fullmatch(r"\d+").all():
         d[COL_CREATED_AT] = pd.to_datetime(d[COL_CREATED_AT], unit="s", utc=True, errors="coerce")
     else:
         d[COL_CREATED_AT] = pd.to_datetime(d[COL_CREATED_AT], utc=True, errors="coerce")
@@ -135,8 +135,9 @@ def load_sqlite(db_path: Union[str, Path], query: Optional[str] = None, table: O
         else:
             if table is None:
                 raise ValueError("--table o --query requerido para SQLite")
-            core = f"SELECT {COL_ID},{COL_TEXT},{COL_LABEL},{COL_SOURCE},{COL_CREATED_AT},{COL_CONTEXT} FROM {table}"
-            sql = core
+            # Modo agnóstico: trae todas las columnas y ensure_columns mapea
+            #core = f"SELECT {COL_ID},{COL_TEXT},{COL_LABEL},{COL_SOURCE},{COL_CREATED_AT},{COL_CONTEXT} FROM {table}"
+            sql = f"SELECT * FROM {table}"
         if limit is not None:
             sql = f"SELECT * FROM ({sql}) LIMIT {limit}"
         df = pd.read_sql(sql, conn)
