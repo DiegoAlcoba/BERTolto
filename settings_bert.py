@@ -4,7 +4,7 @@ warnings.filterwarnings('ignore');
 
 # common imports
 import pandas as pd
-import pathlib
+from pathlib import Path
 import sqlite3
 import os
 import subprocess
