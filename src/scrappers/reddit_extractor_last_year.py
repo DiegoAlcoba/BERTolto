@@ -19,8 +19,8 @@ load_dotenv()  # lee .env del CWD si existe
 
 DEFAULT_USER_AGENT = os.getenv("REDDIT_USER_AGENT", "vuln-collector/1.0")
 DEFAULT_DAYS = int(os.getenv("REDDIT_DIAS_ATRAS", "365"))
-DEFAULT_OUT_CSV = Path(os.getenv("REDDIT_OUT_CSV", "../../../data/comentarios_reddit_raw_lastyear.csv"))
-DEFAULT_CHECKPOINT_DIR = Path(os.getenv("REDDIT_CHECKPOINT_DIR", "../../../data/checkpoints/reddit"))
+DEFAULT_OUT_CSV = Path(os.getenv("REDDIT_OUT_CSV", "../../../data/reddit_comments/training/comentarios_reddit_raw_lastyear.csv"))
+DEFAULT_CHECKPOINT_DIR = Path(os.getenv("REDDIT_CHECKPOINT_DIR", "../../../data/reddit_comments/training/checkpoints/reddit"))
 DEFAULT_SLEEP_PER_SUBMISSION = float(os.getenv("REDDIT_SLEEP_PER_SUBMISSION", "0.0"))
 
 CLIENT_ID = os.getenv("REDDIT_CLIENT_ID")
