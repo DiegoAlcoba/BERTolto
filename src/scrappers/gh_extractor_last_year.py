@@ -657,7 +657,7 @@ def read_repos_file(p: Optional[str]) -> List[str]:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--repos-file", type=str, help="Archivo con repos owner/name por línea.")
-    ap.add_argument("--out-base", type=str, default="../../../data/gh_comments/train-fine_tuning/gh_comments_lastyear", help="Ruta base sin extensión.")
+    ap.add_argument("--out-base", type=str, default="../../../data/gh_comments/training/gh_comments_lastyear", help="Ruta base sin extensión.")
     ap.add_argument("--days", type=int, default=365, help="Días hacia atrás (ventana).")
     ap.add_argument("--only-initial-post", action="store_true", help="Guardar solo el body inicial de Issues/PRs (sin comentarios siguientes)")
     ap.add_argument("--max-comments-per-item", type=int, default=None, help="Máximo de comentarios por Issue/PR (0 = ninguno)")
