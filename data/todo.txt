@@ -1,14 +1,3 @@
-Elige 3–5 subreddits del bloque prioritario (p. ej., r/netsec, r/AskNetsec, r/cybersecurity,
- r/ReverseEngineering, r/exploitdev) y crea un “seed” de posts con palabras clave
- (CVE, 0day, vulnerability, bypass, RCE, XSS, SSRF…).
-
-Para GitHub, genera una lista de URLs de issues/discussions con los filtros de arriba en estos repos
-(Kubernetes, Envoy, Helm, Grafana, Prometheus, Node.js, Next.js, Electron, OpenSSL, cURL, TensorFlow,
-PyTorch). Esa lista la pasas directamente a tu scraper.
-
-**El seed son los archivos con los subreddits/repos en lista para cogerlos con los scrappers directamente**
-
-
 En la extracción en tiempo real (stream) aplicar los cambios para que extraiga solo el body de la Issue
 o un máximo definido de comentarios
 
@@ -19,6 +8,20 @@ Pero para mejor recall conviene mezclar:
 
 Body inicial (señal de alta precisión).
 
-Un puñado de comentarios (p. ej., el primer o primeros N), donde a menudo aparecen confirmaciones, PoCs o matices (“esto es RCE si X está activado”).
+Un puñado de comentarios (p. ej., el primer o primeros N), donde a menudo aparecen confirmaciones,
+ PoCs o matices (“esto es RCE si X está activado”).
 
-Mi recomendación: empieza con --only-initial-post para el set semilla y, en una segunda pasada, añade --max-comments-per-item 1–2 para enriquecer sin desbordarte.
+Mi recomendación: empieza con --only-initial-post para el set semilla y, en una segunda pasada,
+ añade --max-comments-per-item 1–2 para enriquecer sin desbordarte.
+
+**************************************************************************************************
+*                                        TAREAS DÍA A DÍA                                        *
+**************************************************************************************************
+---LUNES---
+- Descargar comentarios de los repositorios --max-comments-per-item 2 mientras voy a por abuelita
+    - Cuando lo importe en Pandas se ordenan los bodys con los comentarios debajo
+- Definir si utilizar una tokenización específica para transformers o usar el escrito por mi (notebooks)
+y resto de fases de preprocesamiento
+- Dejar todos los bodys con el preprocesamiento completo (ahora desarrollado en notebooks)
+- Definir el programa para la primera fase de entrenamiento del modelo solo con los bodys
+---
