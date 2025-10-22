@@ -5,11 +5,20 @@ import numpy as np
 import os
 from datasets import Dataset, DatasetDict
 from sklearn.utils.class_weight import compute_class_weight
-from transformers import AutoTokenizer, DataCollatorWithPadding
+from transformers import AutoTokenizer, DataCollatorWithPadding  # DataCollator import se mantiene por compat
 
 from prep_utils import (
     COL_ID, COL_TEXT, COL_LABEL, COL_SOURCE, COL_CREATED_AT, COL_CONTEXT
 )
+
+# --- NUEVO: Defaults seguros para cache HF si no están definidos por entorno ---
+# Evita usar ~/.cache/huggingface (que puede quedar con permisos de root cuando usas contenedor)
+_HF_CACHE_DEFAULT = Path(__file__).resolve().parents[2] / ".cache" / "huggingface"
+os.environ.setdefault("HF_HOME", str(_HF_CACHE_DEFAULT))
+os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(_HF_CACHE_DEFAULT))
+os.environ.setdefault("TRANSFORMERS_CACHE", str(_HF_CACHE_DEFAULT / "hub"))
+Path(os.environ["HF_HOME"]).mkdir(parents=True, exist_ok=True)
+Path(os.environ["TRANSFORMERS_CACHE"]).mkdir(parents=True, exist_ok=True)
 
 _TOKENIZER_CACHE = {}
 
@@ -77,7 +86,15 @@ def main():
     ap.add_argument("--use-domain-prefix", action="store_true")
     ap.add_argument("--sliding-window", action="store_true")
     ap.add_argument("--slide-stride", type=int, default=128)
-    ap.add_argument("--max-window-per-doc", type=int, default=None)
+
+    # --- NUEVO: acepta ambas variantes y unifica en 'max_windows_per_doc'
+    ap.add_argument(
+        "--max-windows-per-doc", "--max-window-per-doc",
+        dest="max_windows_per_doc",
+        type=int, default=None,
+        help="Máximo de ventanas por documento cuando hay sliding-window."
+    )
+
     ap.add_argument("--filter-max-input-tokens", type=int, default=None)
     ap.add_argument("--num-proc", type=int, default=max(1, (os.cpu_count() or 4)//2))
     ap.add_argument("--batch-chunk-size", type=int, default=512)
@@ -94,7 +111,6 @@ def main():
     if args.use_domain_prefix:
         def pref(src: str) -> str:
             s = str(src).lower()
-
             return "<GITHUB> " if "github" in s else ("<REDDIT> " if "reddit" in s else "")
 
         for df in (train, dev, test):
@@ -110,31 +126,25 @@ def main():
     # Calcular longitudes en tokens en batch (sin truncar)
     def measure_lengths(texts, tokenizer, bs):
         lens=[]
-
         for i in range(0, len(texts), bs):
             enc = tokenizer(
                 list(texts[i:i+bs]), truncation=False,
                 add_special_tokens=True, padding=False
             )
             lens.extend([len(x) for x in enc["input_ids"]])
-
         return np.array(lens, dtype=np.int32)
 
     # Filtro (opcional) antes de la división por ventanas
     if args.filter_max_input_tokens is not None:
         TH = int(args.filter_max_input_tokens)
-
         for name, df in (("train", train), ("validation", dev), ("test", test)):
             if len(df) == 0:
                 continue
-
             lens = measure_lengths(df[COL_TEXT].astype(str).tolist(), tok, args.batch_chunk_size)
             keep_mask = lens <= TH
             kept = keep_mask.sum()
-
             if kept < len(df):
                 print(f"[filtro] {name} -> {len(df) - kept} descartados por > {TH} tokens")
-
             if name == "train":
                 train = df.iloc[np.where(keep_mask)[0]].copy()
             elif name == "validation":
@@ -161,7 +171,8 @@ def main():
                 max_len=args.max_len,
                 sliding_window=args.sliding_window,
                 slide_stride=args.slide_stride,
-                max_window_per_doc=args.max_window_per_doc,
+                # --- mapping al nombre que usa tokenize_batch (sin cambiar su firma)
+                max_window_per_doc=args.max_windows_per_doc,
                 use_domain_prefix=args.use_domain_prefix,
             )
         )
@@ -176,7 +187,7 @@ def main():
     ds_tok.save_to_disk(str(hf_ds_dir))
     tok.save_pretrained(str(tok_dir))
 
-    #Class weights (0/1) por si se entrena luego con 'balanced'
+    # Class weights (0/1) por si se entrena luego con 'balanced'
     y = np.array(ds_tok["train"][COL_LABEL])
     classes = np.unique(y)
     cw = compute_class_weight(class_weight="balanced", classes=classes, y=y)

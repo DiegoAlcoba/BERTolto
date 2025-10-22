@@ -1,0 +1,15 @@
+{
+  "base_model": "distilroberta-base",
+  "max_len": 384,
+  "use_domain_prefix": false,
+  "sliding_window": true,
+  "slide_stride": 128,
+  "counts": {
+    "train": 16640,
+    "validation": 8421,
+    "test": 6917
+  },
+  "class_weights": {
+    "0": 1.0
+  }
+}

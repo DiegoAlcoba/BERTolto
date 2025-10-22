@@ -1,0 +1,11 @@
+{
+  "rows": 31335,
+  "columns": [
+    "id",
+    "text",
+    "label",
+    "source",
+    "created_at",
+    "context_id"
+  ]
+}
