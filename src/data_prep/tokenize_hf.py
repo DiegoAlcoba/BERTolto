@@ -187,11 +187,26 @@ def main():
     ds_tok.save_to_disk(str(hf_ds_dir))
     tok.save_pretrained(str(tok_dir))
 
-    # Class weights (0/1) por si se entrena luego con 'balanced'
+    # Class weights (funciona con labels string o numéricas)
     y = np.array(ds_tok["train"][COL_LABEL])
-    classes = np.unique(y)
-    cw = compute_class_weight(class_weight="balanced", classes=classes, y=y)
-    cw_map = {int(c): float(w) for c, w in zip(classes, cw)}
+
+    # Si las labels no son numéricas, opcionalmente mapéalas a ids para los weights
+    if y.dtype.kind not in ("i", "u", "f"):
+        # etiquetas → ids estables (orden alfabético)
+        uniq = np.unique(y)
+        label_to_id = {lbl: i for i, lbl in enumerate(uniq)}
+        id_to_label = {i: lbl for lbl, i in label_to_id.items()}
+        y_ids = np.array([label_to_id[v] for v in y], dtype=np.int32)
+        classes = np.unique(y_ids)
+        cw = compute_class_weight(class_weight="balanced", classes=classes, y=y_ids)
+        cw_map = {int(c): float(w) for c, w in zip(classes, cw)}
+    else:
+        classes = np.unique(y)
+        cw = compute_class_weight(class_weight="balanced", classes=classes, y=y)
+        # no fuerces int() si ya son numéricos; si son floats, castea a str o int según preferencia
+        cw_map = {str(c): float(w) for c, w in zip(classes, cw)}
+        label_to_id = None
+        id_to_label = None
 
     meta = {
         "base_model": args.base_model,
@@ -200,7 +215,9 @@ def main():
         "sliding_window": bool(args.sliding_window),
         "slide_stride": args.slide_stride,
         "counts": {k: len(ds_tok[k]) for k in ds_tok.keys()},
-        "class_weights": cw_map
+        "class_weights": cw_map,
+        "label_to_id": label_to_id,  # puede ser None
+        "id_to_label": id_to_label  # puede ser None
     }
 
     (out_dir / "preprocess_meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")

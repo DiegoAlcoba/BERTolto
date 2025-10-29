@@ -2,10 +2,12 @@
 # -*- coding: utf-8 -*-
 
 """
-Extractor de comentarios de GitHub con checkpoints y ventanas flexibles.
+Extractor de comentarios de GitHub con checkpoints y ventanas flexibles + filtro por título.
 - Guarda un CSV incremental y un .state.json con el comentario más nuevo y más viejo vistos por repo.
 - Filtra SIEMPRE por ventana temporal (createdAt ∈ [low_ts, high_ts]).
-- Modos:
+- Opcional: filtra por palabras clave en el TÍTULO de issues/PRs (container_title).
+
+Modos:
     * days   : desde hoy hasta N días atrás (--days)
     * newer  : desde el más moderno ya guardado hasta hoy
     * older  : desde N días antes del más antiguo ya guardado hasta ese "más antiguo" (--days)
@@ -35,6 +37,12 @@ Ejemplos:
   python gh_extractor_checkpointed.py --repos-file repos.txt \
       --out-base data/gh_comments/jan2023 --mode window \
       --since 2023-01-01T00:00:00Z --until 2023-02-01T00:00:00Z
+
+  # Filtro por TÍTULO (usa defaults + añade propias):
+  python gh_extractor_checkpointed.py --repos-file repos.txt \
+      --out-base data/gh_comments/filtered --mode days --days 90 \
+      --use-default-title-keywords \
+      --title-keywords "panic,heap overflow"
 """
 
 import os
@@ -76,6 +84,27 @@ DEFAULT_REPOS = [
     "electron-userland/electron-builder",
 ]
 
+# Palabras clave por defecto para títulos (ES/EN) — se activan con --use-default-title-keywords
+DEFAULT_TITLE_KEYWORDS = [
+    # genéricos bug/error/fallo
+    "bug", "error", "failure", "fault", "issue", "regression", "crash", "hang", "freeze",
+    "segfault", "panic", "unexpected", "incorrect", "wrong", "mismatch",
+    "null pointer", "nil pointer", "undefined behavior", "UB", "race condition",
+    "deadlock", "livelock", "timeout", "latency spike",
+    "memory leak", "leak", "oom", "out of memory", "high memory", "use-after-free",
+    "double free", "dangling", "buffer overflow", "stack overflow", "heap overflow",
+    "out-of-bounds", "oob", "off-by-one", "overread", "overwrite", "corruption", "corrupt",
+    "infinite loop", "loop", "recursion", "stack exhaustion",
+    # seguridad
+    "security", "vulnerability", "vuln", "cve", "exploit", "rce", "lpe", "privilege escalation",
+    "xss", "cross-site scripting", "csrf", "ssrf", "sqli", "sql injection",
+    "command injection", "code injection", "template injection", "path traversal",
+    "directory traversal", "insecure", "exposure", "information disclosure",
+    "auth bypass", "authentication bypass", "authorization bypass",
+    "weak cryptography", "weak crypto", "insecure default", "hardcoded secret",
+    "sensitive data", "token leak", "credential leak",
+]
+
 # ---------- Utilidades base ----------
 def require_token() -> str:
     tok = os.getenv("GITHUB_TOKEN")
@@ -110,30 +139,51 @@ def gql(session: requests.Session, query: str, variables: Dict[str, Any], backof
             r = session.post(
                 GRAPHQL_ENDPOINT,
                 json={"query": query, "variables": variables},
-                timeout=(5, 40)  # 5s connect, 40s read
+                timeout=(5, 40)
             )
+            # Caso 403 explícito (rate limit core)
             if r.status_code == 403 and "rate limit" in r.text.lower():
                 reset = r.headers.get("X-RateLimit-Reset")
-                sleep_for = max(5, int(reset) - int(time.time()) + 3) if (reset and str(reset).isdigit()) else 30
-                print(f"[gql] 403 rate limit. Duermo {sleep_for}s…")
-                time.sleep(sleep_for); continue
+                if reset and str(reset).isdigit():
+                    wait = max(5, int(reset) - int(time.time()) + 1)
+                    print(f"[gql] 403 rate limit. Duermo {wait}s…")
+                    time.sleep(wait)
+                else:
+                    print("[gql] 403 rate limit sin cabecera 'reset'; consulto rateLimit y duermo hasta reset…")
+                    sleep_until_reset(session, fallback_seconds=60)
+                continue
 
             if r.status_code == 200:
                 data = r.json()
-                if "errors" in data:
+                if "errors" in data and data["errors"]:
                     msgs = " | ".join(e.get("message","") for e in data["errors"])
-                    if ("Something went wrong" in msgs) or ("abuse" in msgs.lower()) or ("rate limit" in msgs.lower()):
+                    low = msgs.lower()
+                    # Mensajes típicos de límite/abuso en errores GraphQL
+                    if ("rate limit" in low) or ("secondary rate" in low) or ("abuse" in low):
+                        print(f"[gql] Error de cuota/abuso: {msgs}. Duermo hasta reset…")
+                        sleep_until_reset(session, fallback_seconds=60)
+                        continue
+                    # Error transitorio -> backoff exponencial corto
+                    if "something went wrong" in msgs.lower():
                         sleep_for = min(backoff * 1.7 + random.uniform(0, 0.5), 30.0)
                         print(f"[gql] Error transitorio: {msgs}. Reintento en {sleep_for:.1f}s…")
                         time.sleep(sleep_for); backoff = sleep_for; continue
+                    # Error duro
                     raise RuntimeError(f"GraphQL error: {msgs}")
                 return data["data"]
 
             if r.status_code in (429, 500, 502, 503, 504):
+                # 429 too many requests
+                if r.status_code == 429:
+                    print("[gql] 429 Too Many Requests. Duermo hasta reset…")
+                    sleep_until_reset(session, fallback_seconds=60)
+                    continue
+                # Otras 5xx transitorias
                 sleep_for = min(backoff * 1.7 + random.uniform(0, 0.5), 30.0)
                 print(f"[gql] HTTP {r.status_code}. Reintento en {sleep_for:.1f}s…")
                 time.sleep(sleep_for); backoff = sleep_for; continue
 
+            # Otros códigos
             raise RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")
 
         except (RequestException, RemoteDisconnected) as e:
@@ -274,7 +324,7 @@ def list_issues(session, owner, repo) -> Iterable[Dict[str, Any]]:
             yield n
         if not conn["pageInfo"]["hasNextPage"]: break
         cursor = conn["pageInfo"]["endCursor"]
-        time.sleep(0.2)
+        time.sleep(0.4)
 
 def list_prs(session, owner, repo) -> Iterable[Dict[str, Any]]:
     cursor = None
@@ -285,7 +335,7 @@ def list_prs(session, owner, repo) -> Iterable[Dict[str, Any]]:
             yield n
         if not conn["pageInfo"]["hasNextPage"]: break
         cursor = conn["pageInfo"]["endCursor"]
-        time.sleep(0.2)
+        time.sleep(0.4)
 
 def iter_issue_comments(session, owner, repo, number) -> Iterable[Dict[str, Any]]:
     cursor = None
@@ -506,7 +556,7 @@ def compute_window(mode: str,
     - days   : [now - days, now]
     - newer  : [newest_seen+ε, until or now] (si no hay state, cae a days o 365d)
     - older  : [hi - days, hi] con hi = oldest_seen-ε  (si no hay state, cae a [now-days, now])
-    - range  : [now - from_days, now - to_days]  (requiere ambos)
+    - range  : [now - from_days, now - to_days]
     - window : [since, until] con ISO (faltantes caen a [now-365d, now] o al que haya)
     """
     now_ts = datetime.now(timezone.utc).timestamp()
@@ -553,6 +603,21 @@ def compute_window(mode: str,
 
     raise ValueError(f"Modo no soportado: {mode}")
 
+# ---------- Helpers de filtro por título ----------
+def _normalize_keywords(seq: Iterable[str]) -> List[str]:
+    out = []
+    for s in seq:
+        ss = s.strip().lower()
+        if ss:
+            out.append(ss)
+    return out
+
+def title_matches(title: Optional[str], patterns: List[str]) -> bool:
+    if not patterns:
+        return True  # sin filtro -> pasa todo
+    t = (title or "").lower()
+    return any(p in t for p in patterns)
+
 # ---------- Núcleo extractor ----------
 def extractor_repo(session,
                    owner: str,
@@ -565,9 +630,11 @@ def extractor_repo(session,
                    only_initial_post: bool,
                    max_comments_per_item: Optional[int],
                    max_comments_per_repo: Optional[int],
-                   state: Dict[str, Dict[str, float]]) -> int:
+                   state: Dict[str, Dict[str, float]],
+                   title_keywords: List[str]) -> int:
     """
     Extrae comentarios cuyo createdAt cae en [low_ts, high_ts].
+    Aplica filtro por TÍTULO de issue/PR (si hay keywords).
     Actualiza state[repo]['newest_comment_ts'/'oldest_comment_ts'] cuando escribe filas.
     Devuelve nº de comentarios NUEVOS escritos (tras dedupe).
     """
@@ -583,7 +650,6 @@ def extractor_repo(session,
         if "oldest_comment_ts" not in entry or created_ts < entry["oldest_comment_ts"]:
             entry["oldest_comment_ts"] = created_ts
 
-    # Si el writer no tiene hook, lo ponemos
     if not hasattr(writer, "_on_write") or writer._on_write is None:
         writer._on_write = _on_write
 
@@ -601,9 +667,13 @@ def extractor_repo(session,
 
     # -------- Issues --------
     for it in list_issues(session, owner, repo):
-        # OPT: si buscamos "newer", podemos cortar cuando el updatedAt caiga por debajo del low_ts
+        # corte rápido en "newer"
         if mode == "newer" and parse_iso(it["updatedAt"]) < low_ts:
             break
+
+        # FILTRO por título (issue)
+        if not title_matches(it.get("title"), title_keywords):
+            continue
 
         if only_initial_post:
             if in_window(it["createdAt"]):
@@ -634,6 +704,10 @@ def extractor_repo(session,
         if mode == "newer" and parse_iso(prn["updatedAt"]) < low_ts:
             break
 
+        # FILTRO por título (PR)
+        if not title_matches(prn.get("title"), title_keywords):
+            continue
+
         if only_initial_post:
             if in_window(prn["createdAt"]):
                 if writer.write_unique(row_pr_body_from_node(repo_full, prn)):
@@ -662,7 +736,7 @@ def extractor_repo(session,
         # Review comments
         if include_reviews and (max_comments_per_item is None or count < max_comments_per_item):
             for thread_id, rc in iter_pr_review_comments(session, owner, repo, num):
-                if in_window(rc["createdAt"]):
+                if in_window(rc["CreatedAt"] if "CreatedAt" in rc else rc["createdAt"]):
                     if not can_write_more(): break
                     if (max_comments_per_item is not None) and (count >= max_comments_per_item): break
                     row = row_pr_review(repo_full, num, rc, thread_id)
@@ -690,7 +764,7 @@ def read_repos_file(p: Optional[str]) -> List[str]:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--repos-file", type=str, help="Archivo con repos owner/name por línea.")
-    ap.add_argument("--out-base", type=str, default="../../data/gh_comments/training/gh_comments_agosto_2023-2024",
+    ap.add_argument("--out-base", type=str, default="../../data/gh_comments/training/gh_comments_2023_now",
                     help="Ruta base sin extensión para el CSV y el state (.csv y .state.json).")
 
     # Modos de ventana
@@ -704,22 +778,47 @@ def main():
 
     # Qué comentarios incluir
     ap.add_argument("--only-initial-post", action="store_true", help="Guardar sólo el body inicial de Issues/PRs (sin comentarios).")
+    ap.add_argument("--also-include-initial-post", action="store_true", help="Además de los comentarios, guarda también el body de issues/PRs.")
     ap.add_argument("--include-review-comments", action="store_true", help="Incluir comentarios de code review en PRs.")
     ap.add_argument("--max-comments-per-item", type=int, default=None, help="Máximo de comentarios por Issue/PR (0 = ninguno).")
     ap.add_argument("--max-comments-per-repo", type=int, default=None, help="Límite total de comentarios a extraer por repo.")
+
+    # Filtro por título
+    ap.add_argument("--use-default-title-keywords", action="store_true",
+                    help="Activa un conjunto por defecto de palabras clave (bug/vuln ES/EN) para filtrar por título.")
+    ap.add_argument("--title-keywords", type=str, default=None,
+                    help="Lista coma-separada de palabras/frases a buscar en el título (case-insensitive).")
+    ap.add_argument("--title-keywords-file", type=str, default=None,
+                    help="Ruta de archivo con una palabra/frase por línea para filtrar por título.")
 
     # State
     ap.add_argument("--state-path", type=str, default=None, help="Ruta del .state.json (por defecto <out-base>.state.json)")
 
     args = ap.parse_args()
 
+    # Preparar keywords activas
+    active_kw: List[str] = []
+    if args.use_default_title_keywords:
+        active_kw.extend(DEFAULT_TITLE_KEYWORDS)
+    if args.title_keywords:
+        active_kw.extend([x.strip() for x in args.title_keywords.split(",")])
+    if args.title_keywords_file:
+        fp = Path(args.title_keywords_file)
+        if fp.exists():
+            for line in fp.read_text(encoding="utf-8").splitlines():
+                if line.strip():
+                    active_kw.append(line.strip())
+        else:
+            print(f"[warn] No existe --title-keywords-file: {fp}")
+    active_kw = _normalize_keywords(active_kw)
+    if active_kw:
+        print(f"[info] Filtro activo por título con {len(active_kw)} palabras/frases.")
+
     repos = read_repos_file(args.repos_file)
     token = require_token()
     session = mk_session(token)
 
-    base = Path(args.out_base) if hasattr(args, "out-base") else Path(args.out_base)  # seguridad por si shell cambia guion
     base = Path(args.out_base)
-
     writer = Writer(base)
     state_path = Path(args.state_path) if args.state_path else base.with_suffix(".state.json")
     state = load_state(state_path)
@@ -756,7 +855,8 @@ def main():
                 only_initial_post=args.only_initial_post,
                 max_comments_per_item=args.max_comments_per_item,
                 max_comments_per_repo=args.max_comments_per_repo,
-                state=state
+                state=state,
+                title_keywords=active_kw
             )
             total += n_repo
             writer.flush()

@@ -27,6 +27,7 @@ import logging
 import spacy
 import nltk
 import textacy
+from datasets import load_from_disk
 
 from tqdm.auto import tqdm
 # register `pandas.progress_apply` and `pandas.Series.map_apply` with `tqdm`
