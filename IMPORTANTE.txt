@@ -1,0 +1,1 @@
+Si voy a volver a tocar algo del modelo, tengo que ajustar las rutas (entiendo que solo las absolutas) para que cojan bien los datos, de otro modo podría reventar
