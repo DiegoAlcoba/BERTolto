@@ -1,36 +1,68 @@
 ## Detección automatizada de vulnerabilidades
 ### Estructura y organización de directorios
+
 .
+
 ├── caddy
+
 │   └── Caddyfile
+
 ├── data
+
 │   ├── db\_init
+
 │   │   └── init.sql
+
 │   ├── db\_storage
+
 │   ├── n8n\_storage
+
 │   ├── nocodb\_data
+
 │   ├── redisinsight\_storage
+
 │   └── redis\_storage
+
 ├── docker-compose.yml
+
 ├── model\_api
+
 │   ├── app.py
+
 │   ├── Dockerfile
+
 │   └── infer.py
+
 ├── models
+
 │   └── bertolto\_v1
+
 │       ├── config.json
+
 │       ├── eval\_comment\_level.json
+
 │       ├── inference\_meta.json
+
 │       ├── merges.txt
+
 │       ├── model.safetensors
+
 │       ├── special\_tokens\_map.json
+
 │       ├── threshold.json
+
 │       ├── tokenizer\_config.json
+
 │       ├── tokenizer.json
+
 │       ├── val\_pooled_labels.npy
+
 │       ├── val\_pooleds\_cores.npy
+
 │       └── vocab.json
+
 └── README.md
+
 
 Los archivos no versionados en el repositorio es debido a que se generan con la construcción de la imagen Docker, contienen credenciales, o son demasiado pesados para hacerlo, como por ejemplo el directorio "models".
 
