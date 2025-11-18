@@ -5,20 +5,10 @@
 
 {$NOCO_HOST} {
   encode gzip
-  # (Opcional) Basic Auth extra en el proxy, además del login propio de NocoDB:
-  # basicauth /* {
-  #   tutor JDJhJDEwJHguLi5HASH_BCRYPT_AQUI  # ver nota de hash abajo
-  #   diego JDJhJDEwJHguLi5HASH_BCRYPT_AQUI
-  # }
   reverse_proxy nocodb:8080
 }
 
 {$REDIS_HOST} {
   encode gzip
   reverse_proxy redisinsight:5540
-  # Opcional: añade basic auth extra
-  # basicauth /* {
-  #   tutor JDJhJDEw$HASH_BCRYPT_AQUI
-  #   diego JDJhJDEw$HASH_BCRYPT_AQUI
-  # }
 }
