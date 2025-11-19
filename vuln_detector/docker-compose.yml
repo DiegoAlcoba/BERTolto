@@ -139,6 +139,11 @@ services:
       TZ: Europe/Madrid
     volumes:
       - ./models:/models:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://locahost:8000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
     #Sin ports: se invoca desde n8n via http://model-api:8000
     networks: [internal]
 
