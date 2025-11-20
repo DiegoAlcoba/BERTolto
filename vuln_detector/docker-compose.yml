@@ -3,6 +3,10 @@ services:
     image: caddy:2
     restart: unless-stopped
     ports: [ "80:80","443:443" ]
+    environment:
+      - N8N_HOST=${N8N_HOST}
+      - NOCO_HOST=${NOCO_HOST}
+      - REDIS_HOST=${REDIS_HOST}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
@@ -140,7 +144,7 @@ services:
     volumes:
       - ./models:/models:ro
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://locahost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
       timeout: 3s
       retries: 10

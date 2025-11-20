@@ -1,11 +1,12 @@
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+	PIP_NO_CACHE_DIR=1
 
 # Dependencias del sistema mínimas (para wheels y certs)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates && \
+    ca-certificates curl && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -15,10 +16,14 @@ WORKDIR /app
 RUN pip install --no-cache-dir \
     numpy==1.26.4 \
     safetensors==0.4.3 \
-    torch==2.3.1 \
+	--extra-index-url https://download.pytorch.org/whl/cpu \
+    torch==2.3.1+cpu
+
+#Resto de deps
+RUN pip install --no-cache-dir \
     transformers==4.44.2 \
     fastapi==0.115.0 \
-    "uvicorn[standard]==0.30.5" \
+    uvicorn==0.30.5 \
     pydantic==2.8.2
 
 #Se copia solo el server, el modelo se monta como volumen

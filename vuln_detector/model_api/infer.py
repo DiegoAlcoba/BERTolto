@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Union
 
-from transformers import AutoTokenizer, AutoConfig, AutoModelForSequenceClassification
+from transformers import RobertaTokenizer, AutoTokenizer, AutoConfig, AutoModelForSequenceClassification
 import torch
 import numpy as np
 
@@ -14,7 +14,7 @@ class VulnDetector:
 
         # Config + tokenizer + modelo
         self.conf = AutoConfig.from_pretrained(self.model_dir)
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_dir, use_fast=True)
+        self.tokenizer = RobertaTokenizer.from_pretrained(self.model_dir, use_fast=False)
         self.model = AutoModelForSequenceClassification.from_pretrained(self.model_dir, config=self.conf)
         self.model.eval()
 

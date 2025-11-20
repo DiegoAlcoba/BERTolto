@@ -3,6 +3,7 @@ from typing import List, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from infer import VulnDetector
+from pathlib import Path
 
 MODEL_PATH = os.environ.get("MODEL_PATH", "/models/bertolto_v1")
 

@@ -1,10 +1,10 @@
 {$N8N_HOST} {
-  encode gzip
+  encode zstd gzip
   reverse_proxy n8n:5678
 }
 
 {$NOCO_HOST} {
-  encode gzip
+  encode zstd gzip
   reverse_proxy nocodb:8080
 }
 
