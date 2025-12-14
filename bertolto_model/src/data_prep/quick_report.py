@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from pandas.api.types import is_datetime64_any_dtype
 
-# nombres canónicos (ajústalos si en prep_utils tienes constantes diferentes)
+# nombres canónicos (ajustar si en prep_utils hay constantes diferentes)
 COL_LABEL = "label"
 COL_SOURCE = "source"
 COL_CREATED_AT = "created_at"

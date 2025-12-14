@@ -43,14 +43,10 @@ import praw
 import prawcore
 from dotenv import load_dotenv
 
-# ──────────────────────────────────────────────────────────────────────────────
 # Carga .env (opcional)
-# ──────────────────────────────────────────────────────────────────────────────
 load_dotenv()
 
-# ──────────────────────────────────────────────────────────────────────────────
 # Defaults y palabras clave
-# ──────────────────────────────────────────────────────────────────────────────
 DEFAULT_USER_AGENT = os.getenv("REDDIT_USER_AGENT", "vuln-collector/1.0")
 
 DEFAULT_TITLE_KEYWORDS = [
@@ -73,15 +69,13 @@ DEFAULT_TITLE_KEYWORDS = [
     "hardcoded secret", "sensitive data", "token leak", "credential leak",
 ]
 
-# Para body puedes usar la misma lista o ampliarla con términos de síntomas
+# Para body usar la misma lista o ampliarla con términos de síntomas
 DEFAULT_BODY_KEYWORDS = DEFAULT_TITLE_KEYWORDS + [
     "se cuelga", "se bloquea", "comportamiento extraño", "no esperado",
     "datos sensibles", "credenciales", "token", "clave", "contraseña",
 ]
 
-# ──────────────────────────────────────────────────────────────────────────────
 # Utilidades
-# ──────────────────────────────────────────────────────────────────────────────
 def iso_from_epoch(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -127,9 +121,7 @@ def init_reddit(user_agent: str) -> praw.Reddit:
         sys.exit(1)
     return praw.Reddit(client_id=cid, client_secret=csec, user_agent=user_agent)
 
-# ──────────────────────────────────────────────────────────────────────────────
 # Estado y dedupe
-# ──────────────────────────────────────────────────────────────────────────────
 def load_state(path: Path) -> Dict[str, Dict[str, float]]:
     if path.exists():
         try:
@@ -209,9 +201,7 @@ class Writer:
     def close(self):
         self._fp.close()
 
-# ──────────────────────────────────────────────────────────────────────────────
 # Ventanas
-# ──────────────────────────────────────────────────────────────────────────────
 def compute_window(mode: str,
                    days: Optional[int],
                    since: Optional[str],
@@ -265,9 +255,7 @@ def compute_window(mode: str,
 
     raise ValueError(f"Modo no soportado: {mode}")
 
-# ──────────────────────────────────────────────────────────────────────────────
 # Rate limit y backoff
-# ──────────────────────────────────────────────────────────────────────────────
 def sleep_with_jitter(seconds: float):
     time.sleep(seconds + random.uniform(0.0, min(1.0, seconds * 0.1)))
 
@@ -284,9 +272,7 @@ def handle_rate_limit(e: Exception, fallback_wait: float = 30.0):
     print(f"[rate-limit] Cuota agotada. Espero {wait:.1f}s…")
     sleep_with_jitter(wait)
 
-# ──────────────────────────────────────────────────────────────────────────────
 # Núcleo de extracción
-# ──────────────────────────────────────────────────────────────────────────────
 def row_from_submission_body(sr_name: str, subm) -> Dict[str, Any]:
     # Representamos el body como "comentario" sintético
     return {
@@ -350,7 +336,7 @@ def extract_for_subreddit(
         rep_entry["newest_comment_ts"] = newest
         rep_entry["oldest_comment_ts"] = oldest
 
-    # Recorremos por new() (descendente). Cortamos cuando sobrepasamos low_ts
+    # Se recorre por new() (descendente). Corta cuando sobrepasa low_ts
     seen_posts = 0
     while True:
         try:
@@ -407,7 +393,7 @@ def extract_for_subreddit(
 
                 count = 0
                 for c in filtered:
-                    # Aplicamos ventana por *comentario* para ser coherentes con GH
+                    # Aplica ventana por *comentario* para ser coherentes con GH
                     cts = getattr(c, "created_utc", subm.created_utc)
                     if not (low_ts <= cts <= high_ts):
                         continue
@@ -419,7 +405,7 @@ def extract_for_subreddit(
                         update_minmax(cts)
                     if (max_comments_per_post is not None) and (count >= max_comments_per_post):
                         break
-            # Si agotamos el iterador sin StopIteration, no hay más (API pagina internamente).
+            # Si se agota el iterador sin StopIteration, no hay más (API pagina internamente).
             break
 
         except prawcore.exceptions.TooManyRequests as e:
@@ -442,9 +428,7 @@ def extract_for_subreddit(
     print(f"  · r/{sub}: posts vistos={seen_posts}, filas escritas={wrote}")
     return wrote
 
-# ──────────────────────────────────────────────────────────────────────────────
 # Main / CLI
-# ──────────────────────────────────────────────────────────────────────────────
 def main():
     import argparse
 

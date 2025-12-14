@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# 📦 Paquetes Python necesarios para INFERENCIA
+# Paquetes Python necesarios para INFERENCIA
 # - torch CPU, transformers, fastapi, uvicorn, pydantic v2, numpy estable, safetensors
 RUN pip install --no-cache-dir \
     numpy==1.26.4 \

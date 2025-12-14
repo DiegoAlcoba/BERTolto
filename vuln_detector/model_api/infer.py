@@ -31,7 +31,7 @@ class VulnDetector:
         thr_json = json.loads(thr_path.read_text(encoding="utf-8"))
         self.threshold = float(thr_json["threshold"])
 
-        # parámetros de troceo (coinciden con los de entrenamiento (tokenizador de comentarios))
+        # parámetros de troceo (coinciden con los de entrenamiento)
         self.max_len = 384
         self.stride = 128
 

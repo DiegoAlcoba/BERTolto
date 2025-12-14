@@ -12,9 +12,7 @@ from typing import List, Optional
 import praw
 from dotenv import load_dotenv
 
-# ──────────────────────────────────────────────────────────────────────────────
 # Configuración por defecto (puedes sobreescribir via CLI o .env)
-# ──────────────────────────────────────────────────────────────────────────────
 load_dotenv()  # lee .env del CWD si existe
 
 DEFAULT_USER_AGENT = os.getenv("REDDIT_USER_AGENT", "vuln-collector/1.0")
@@ -27,9 +25,7 @@ CLIENT_ID = os.getenv("REDDIT_CLIENT_ID")
 CLIENT_SECRET = os.getenv("REDDIT_CLIENT_SECRET")
 
 
-# ──────────────────────────────────────────────────────────────────────────────
 # Utilidades
-# ──────────────────────────────────────────────────────────────────────────────
 def iso_from_epoch(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -86,9 +82,7 @@ def init_reddit(user_agent: str) -> Optional[praw.Reddit]:
     return praw.Reddit(client_id=CLIENT_ID, client_secret=CLIENT_SECRET, user_agent=user_agent)
 
 
-# ──────────────────────────────────────────────────────────────────────────────
 # Extracción
-# ──────────────────────────────────────────────────────────────────────────────
 def extract_last_n_days_to_csv(
     reddit: praw.Reddit,
     subreddits: List[str],
@@ -104,7 +98,7 @@ def extract_last_n_days_to_csv(
     start_dt = datetime.now(timezone.utc) - timedelta(days=days_back)
     start_epoch = start_dt.timestamp()
 
-    # Abrimos CSV (append o write)
+    # Abre CSV (append o write)
     write_header = True
     if append and out_csv.exists():
         write_header = False
@@ -149,11 +143,11 @@ def extract_last_n_days_to_csv(
                 for submission in sr.new(limit=None):
                     seen_submissions += 1
 
-                    # 1) Si tenemos checkpoint y esta submission es más reciente (>= ckpt_ts), ya fue procesada → saltar
+                    # 1) Si hay checkpoint y esta submission es más reciente (>= ckpt_ts), ya fue procesada → saltar
                     if ckpt_ts is not None and submission.created_utc >= ckpt_ts:
                         continue
 
-                    # 2) Si es anterior a la ventana, cortamos (hemos llegado a >N días atrás)
+                    # 2) Si es anterior a la ventana, corta (ha llegado a >N días atrás)
                     if submission.created_utc < start_epoch:
                         print("  · Corte por fecha alcanzado. Paro este subreddit.")
                         break
@@ -186,7 +180,7 @@ def extract_last_n_days_to_csv(
                         except Exception as e:
                             print(f"  ! Error escribiendo comentario {getattr(c, 'id', '?')}: {e}")
 
-                    # Si escribimos comentarios de esta submission, actualizamos el oldest_ts_this_run
+                    # Si escribe comentarios de esta submission, actualiza el oldest_ts_this_run
                     if wrote_this_submission:
                         processed_any = True
                         if oldest_ts_this_run is None or submission.created_utc < oldest_ts_this_run:
@@ -197,7 +191,7 @@ def extract_last_n_days_to_csv(
 
                 print(f"  · Submissions vistas: {seen_submissions}, comentarios escritos: {written_sub_comments}")
 
-                # Guardar checkpoint si procesamos algo nuevo
+                # Guardar checkpoint si procesa algo nuevo
                 if processed_any and oldest_ts_this_run is not None:
                     save_checkpoint(sub, ckpt_dir, oldest_ts_this_run)
                     print(f"  · Checkpoint actualizado: oldest_submission={iso_from_epoch(oldest_ts_this_run)}")
@@ -208,9 +202,7 @@ def extract_last_n_days_to_csv(
     print(f"\n¡Listo! Comentarios escritos: {total_written}")
 
 
-# ──────────────────────────────────────────────────────────────────────────────
 # CLI
-# ──────────────────────────────────────────────────────────────────────────────
 def main():
     import argparse
 

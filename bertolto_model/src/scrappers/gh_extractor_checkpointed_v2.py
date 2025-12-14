@@ -283,11 +283,11 @@ class Throttler:
         print(f"[throttle] Intervalo elevado a {self.min_interval:.2f}s")
 
     def relax(self):
-        # opcional: podrías relajarlo si todo va bien mucho tiempo
+        # opcional: relajar si todo va bien
         pass
 
 
-# ---------- GraphQL ----------
+# ---------- GraphQL ---------- -> No se utilizan todas, pero quedan para un posible ampliamento futuro
 ISSUE_BODY_Q = """
 query IssueBody($owner:String!, $name:String!, $number:Int!) {
   repository(owner:$owner, name:$name) {
@@ -346,7 +346,7 @@ query PRs($owner:String!, $name:String!, $pageSize:Int!, $cursor:String) {
 }
 """
 
-# Añadimos reactionGroups para poder calcular "most-reacted"
+# Se añadem reactionGroups para poder calcular "most-reacted"
 ISSUE_COMMENTS_Q = """
 query IssueComments($owner:String!, $name:String!, $number:Int!, $pageSize:Int!, $cursor:String) {
   repository(owner:$owner, name:$name) {
@@ -817,7 +817,7 @@ def extractor_repo(session,
             continue
 
         num = it["number"]
-        # Coleccionamos candidatos dentro de la ventana y luego seleccionamos según policy
+        # Colecciona candidatos dentro de la ventana y luego selecciona según policy
         cands: List[Tuple[Dict[str,Any], float, int]] = []
         for issue, com in iter_issue_comments(session, owner, repo, num):
             if in_window(com["createdAt"]):

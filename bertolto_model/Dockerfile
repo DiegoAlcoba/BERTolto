@@ -8,10 +8,10 @@ ENV HF_HOME=/root/.cache/huggingface \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Trabajaremos dentro de tu repo montado como volumen
+# Trabajaremos dentro del repo montado como volumen
 WORKDIR /workspace/BERTolto
 
-# Paquetes base útiles (tini para señalización limpia si lo usas)
+# Paquetes base útiles (tini para señalización limpia si se llega a usar)
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git curl ca-certificates tini \
  && rm -rf /var/lib/apt/lists/*
@@ -21,11 +21,11 @@ RUN /opt/venv/bin/python -m pip install --upgrade pip
 
 # Copiamos sólo requirements para aprovechar cache de capas
 COPY requirements.txt /tmp/requirements.txt
-# (si tienes lock y lo usas) COPY requirements-lock.txt /tmp/requirements-lock.txt
+# (si se quiere usar -lock al final -> no se hace) COPY requirements-lock.txt /tmp/requirements-lock.txt
 
 # IMPORTANTÍSIMO:
-# - NO instales torch/torchvision/torchaudio aquí (¡ya vienen correctos en la base!)
-# - Tu requirements.txt no debe incluirlos.
+# - NO instalar torch/torchvision/torchaudio aquí
+# - requirements.txt no debe incluirlos.
 RUN /opt/venv/bin/pip install -r /tmp/requirements.txt \
  && /opt/venv/bin/pip check || true
 
@@ -33,7 +33,7 @@ RUN /opt/venv/bin/pip install -r /tmp/requirements.txt \
 RUN /opt/venv/bin/pip install jupyterlab ipykernel ipywidgets jupyterlab_widgets \
  && /opt/venv/bin/python -m ipykernel install --name bertolto --display-name "Python (bertolto)" --prefix=/usr/local
 
-# Directorios útiles (si no los montas ya)
+# Directorios útiles
 RUN mkdir -p /checkpoints /datasets
 
 # (Opcional) sanity check en build para ver torch+HIP (no falla el build si no hay GPU en build host)
@@ -43,9 +43,9 @@ print("torch:", torch.__version__, "HIP:", getattr(torch.version, "hip", None))
 print("Torch CUDA available? ", torch.cuda.is_available())
 PY
 
-# Si vas a usar Jupyter desde navegador local
+# Si vas a usar Jupyter desde navegador local -> no
 #EXPOSE 8888
 
-# Arranca en primer plano con bash (lo verás en la terminal)
+# Arranca en primer plano con bash
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["/bin/bash"]

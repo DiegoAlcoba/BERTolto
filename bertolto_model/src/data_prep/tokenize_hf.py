@@ -11,8 +11,8 @@ from prep_utils import (
     COL_ID, COL_TEXT, COL_LABEL, COL_SOURCE, COL_CREATED_AT, COL_CONTEXT
 )
 
-# --- NUEVO: Defaults seguros para cache HF si no están definidos por entorno ---
-# Evita usar ~/.cache/huggingface (que puede quedar con permisos de root cuando usas contenedor)
+# Defaults seguros para cache HF si no están definidos por entorno
+# Evita usar ~/.cache/huggingface (que puede quedar con permisos de root al usar Docker con sudo)
 _HF_CACHE_DEFAULT = Path(__file__).resolve().parents[2] / ".cache" / "huggingface"
 os.environ.setdefault("HF_HOME", str(_HF_CACHE_DEFAULT))
 os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(_HF_CACHE_DEFAULT))
@@ -87,7 +87,7 @@ def main():
     ap.add_argument("--sliding-window", action="store_true")
     ap.add_argument("--slide-stride", type=int, default=128)
 
-    # --- NUEVO: acepta ambas variantes y unifica en 'max_windows_per_doc'
+    # acepta ambas variantes y unifica en 'max_windows_per_doc'
     ap.add_argument(
         "--max-windows-per-doc", "--max-window-per-doc",
         dest="max_windows_per_doc",
@@ -107,7 +107,7 @@ def main():
     dev = pd.read_parquet(args.dev_parquet)[keep_cols].copy()
     test = pd.read_parquet(args.test_parquet)[keep_cols].copy()
 
-    # Prefijo de dominio (opcional)
+    # Prefijo de dominio
     if args.use_domain_prefix:
         def pref(src: str) -> str:
             s = str(src).lower()
@@ -171,7 +171,7 @@ def main():
                 max_len=args.max_len,
                 sliding_window=args.sliding_window,
                 slide_stride=args.slide_stride,
-                # --- mapping al nombre que usa tokenize_batch (sin cambiar su firma)
+                # mapping al nombre que usa tokenize_batch (sin cambiar su firma)
                 max_window_per_doc=args.max_windows_per_doc,
                 use_domain_prefix=args.use_domain_prefix,
             )
@@ -190,9 +190,9 @@ def main():
     # Class weights (funciona con labels string o numéricas)
     y = np.array(ds_tok["train"][COL_LABEL])
 
-    # Si las labels no son numéricas, opcionalmente mapéalas a ids para los weights
+    # Si las labels no son numéricas, opcionalmente se mapean a ids para los weights
     if y.dtype.kind not in ("i", "u", "f"):
-        # etiquetas → ids estables (orden alfabético)
+        # etiquetas → ids estables
         uniq = np.unique(y)
         label_to_id = {lbl: i for i, lbl in enumerate(uniq)}
         id_to_label = {i: lbl for lbl, i in label_to_id.items()}
@@ -203,7 +203,7 @@ def main():
     else:
         classes = np.unique(y)
         cw = compute_class_weight(class_weight="balanced", classes=classes, y=y)
-        # no fuerces int() si ya son numéricos; si son floats, castea a str o int según preferencia
+        # no forzar int() si ya son numéricos; si son floats, castea a str o int según preferencia
         cw_map = {str(c): float(w) for c, w in zip(classes, cw)}
         label_to_id = None
         id_to_label = None

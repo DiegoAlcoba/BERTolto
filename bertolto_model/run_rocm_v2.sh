@@ -10,7 +10,7 @@ PROJ="$HOME/BERTolto"
 HF_HOME_HOST="$PROJ/.hf_home"
 PIP_CACHE_HOST="$PROJ/.cache/pip"
 
-# Asegura que existen (por si no corriste el prep)
+# Asegura que existen
 mkdir -p "$HF_HOME_HOST"/{hub,transformers,datasets}
 mkdir -p "$PIP_CACHE_HOST"
 

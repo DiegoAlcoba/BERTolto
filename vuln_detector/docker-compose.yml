@@ -112,7 +112,6 @@ services:
     image: "nocodb/nocodb:latest"
     restart: unless-stopped
     environment:
-      # Y la dirección para acceso desde navegador como con n8n?
       NC_DB: "pg://postgres:5432?u=nocodb&p=${PG_NOCO_PASS}&d=noco_db"
       NC_PUBLIC_URL: https://${NOCO_HOST}/
       NC_ALLOW_LOCAL_HOOKS: true
@@ -136,7 +135,7 @@ services:
     restart: unless-stopped
     environment:
       MODEL_PATH: /models/bertolto_v1
-      OMP_NUM_THREADS: "1"         # empiezo en 1; subo a "2" solo si veo CPU con baja carga durantte ejecución
+      OMP_NUM_THREADS: "1"         # empiezo en 1; subo a "2" solo si veo CPU con baja carga durantte ejecución -> Se podría haber subido pero no me acordé, la CPU de Azure aguantaba bastante bien
       MKL_NUM_THREADS: "1"         # idem
       TORCH_NUM_THREADS: "1"       # explícalo para PyTorch
       TOKENIZERS_PARALLELISM: "false"  # evita threads extra del tokenizer HF
